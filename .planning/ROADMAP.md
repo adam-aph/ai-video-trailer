@@ -95,11 +95,13 @@ Plans:
   2. Pacing curves are observable in output -- average cut duration decreases from Act 1 to Act 3 per vibe-defined parameters
   3. Pipeline persists stage-based checkpoint state files so a run can resume after failure (power loss, OOM, crash) without restarting the full 30-60 minute pipeline from scratch
   4. A complete end-to-end run from `cinecut <film> --subtitle <srt> --vibe <name>` through proxy, inference, manifest generation, and conform produces a playable trailer MP4
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 05-01: TBD
-- [ ] 05-02: TBD
+- [ ] 05-01-PLAN.md — Atomic pipeline checkpoint: PipelineCheckpoint dataclass, load_checkpoint(), save_checkpoint() (PIPE-04)
+- [ ] 05-02-PLAN.md — Assembly package: 3-act ordering, pacing curve enforcement, FFmpeg lavfi title card/button (EDIT-02, EDIT-03)
+- [ ] 05-03-PLAN.md — CLI Stage 6 wiring with checkpoint guards + test_checkpoint.py + test_assembly.py (PIPE-04, EDIT-02, EDIT-03)
+- [ ] 05-04-PLAN.md — Automated pre-verify + human verify end-to-end trailer and checkpoint resume (EDIT-02, EDIT-03, PIPE-04)
 
 ## Progress
 
