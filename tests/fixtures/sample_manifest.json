@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "source_file": "PLACEHOLDER_SOURCE",
+  "vibe": "action",
+  "clips": [
+    {
+      "source_start_s": 10.0,
+      "source_end_s": 14.5,
+      "beat_type": "inciting_incident",
+      "act": "cold_open",
+      "transition": "hard_cut",
+      "dialogue_excerpt": "Something has gone wrong."
+    },
+    {
+      "source_start_s": 45.0,
+      "source_end_s": 50.0,
+      "beat_type": "escalation_beat",
+      "act": "act1",
+      "transition": "hard_cut",
+      "dialogue_excerpt": ""
+    },
+    {
+      "source_start_s": 120.0,
+      "source_end_s": 122.0,
+      "beat_type": "money_shot",
+      "act": "act3",
+      "transition": "hard_cut",
+      "dialogue_excerpt": ""
+    }
+  ]
+}
