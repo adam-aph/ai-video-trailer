@@ -65,11 +65,12 @@ Plans:
   2. System submits keyframes to LLaVA one at a time and receives structured scene descriptions (visual content, mood, action, setting) with validated output format
   3. GPU operations are strictly sequential -- llama-server inference and FFmpeg GPU operations never run concurrently, with VRAM verified before each inference call
   4. When llama-server hangs, crashes, or produces malformed output, the system handles it gracefully (timeout, skip with warning, no zombie processes)
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
+- [ ] 03-01-PLAN.md — requests dependency, InferenceError/VramError classes, test scaffold, LLaVA model download (human checkpoint)
+- [ ] 03-02-PLAN.md — cinecut.inference package: SceneDescription model, VRAM check, LlavaEngine context manager with GPU_LOCK
+- [ ] 03-03-PLAN.md — describe_frame() inference loop, run_inference_stage(), CLI wiring, INFR-02 unit tests, human-verify
 
 ### Phase 4: Narrative Beat Extraction and Manifest Generation
 **Goal**: System can classify analyzed scenes into narrative beats, score money shot candidates, and generate a complete trailer manifest from real film analysis
@@ -110,6 +111,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 |-------|----------------|--------|-----------|
 | 1. Ingestion Pipeline and CLI Shell | 5/5 | Complete   | 2026-02-26 |
 | 2. Manifest Contract, Vibes, and Conform | 3/3 | Complete   | 2026-02-26 |
-| 3. LLaVA Inference Engine | 0/2 | Not started | - |
+| 3. LLaVA Inference Engine | 0/3 | Not started | - |
 | 4. Narrative Beat Extraction and Manifest Generation | 0/2 | Not started | - |
 | 5. Trailer Assembly and End-to-End Pipeline | 0/2 | Not started | - |
