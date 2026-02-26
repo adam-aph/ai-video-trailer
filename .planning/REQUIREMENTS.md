@@ -24,8 +24,8 @@ Requirements for initial release. Each maps to a roadmap phase.
 ### Narrative Analysis
 
 - [x] **NARR-01**: System parses SRT and ASS subtitle files and extracts dialogue, timestamps, and emotional keyword classification per event
-- [ ] **NARR-02**: System classifies each candidate scene into one of 7 beat types: inciting incident, character introduction, escalation beat, relationship beat, money shot, climax peak, breath
-- [ ] **NARR-03**: System scores "money shot" candidates using a weighted multi-signal model: motion magnitude, visual contrast, scene uniqueness, subtitle emotional weight, face presence, LLaVA confidence, saturation, and chronological position
+- [x] **NARR-02**: System classifies each candidate scene into one of 7 beat types: inciting incident, character introduction, escalation beat, relationship beat, money shot, climax peak, breath
+- [x] **NARR-03**: System scores "money shot" candidates using a weighted multi-signal model: motion magnitude, visual contrast, scene uniqueness, subtitle emotional weight, face presence, LLaVA confidence, saturation, and chronological position
 
 ### Edit & Manifest
 
@@ -99,8 +99,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | INFR-02 | Phase 3 | Complete |
 | INFR-03 | Phase 3 | Complete |
 | NARR-01 | Phase 1 | Complete |
-| NARR-02 | Phase 4 | Pending |
-| NARR-03 | Phase 4 | Pending |
+| NARR-02 | Phase 4 | Complete |
+| NARR-03 | Phase 4 | Complete |
 | EDIT-01 | Phase 4 | Pending |
 | EDIT-02 | Phase 5 | Pending |
 | EDIT-03 | Phase 5 | Pending |

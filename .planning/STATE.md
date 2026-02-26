@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-02-26T20:41:50.044Z"
+last_updated: "2026-02-26T21:52:47Z"
 progress:
-  total_phases: 3
+  total_phases: 5
   completed_phases: 3
-  total_plans: 11
-  completed_plans: 11
+  total_plans: 13
+  completed_plans: 12
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** Given a feature film and its subtitle file, produce a narratively coherent, vibe-styled trailer that a human editor would be proud to show.
-**Current focus:** Phase 3 fully complete -- all 3 plans done, checkpoint approved, 71/71 tests passing
+**Current focus:** Phase 4 in progress -- 04-01 complete (narrative signals + scorer), 04-02 pending
 
 ## Current Position
 
-Phase: 3 of 5 (LLaVA Inference Engine) -- COMPLETE
-Plan: 3 of 3 in current phase -- COMPLETE
+Phase: 4 of 5 (Narrative Beat Extraction and Manifest Generation)
+Plan: 1 of 2 in current phase -- COMPLETE
 Status: Active
-Last activity: 2026-02-26 -- Completed 03-03: checkpoint approved, mmproj patched, 71/71 tests passing
+Last activity: 2026-02-26 -- Completed 04-01: ClipEntry extended, signals.py + scorer.py implemented, 65 tests passing
 
-Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [##########] 100% (Phase 3)
+Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [##########] 100% (Phase 3) | [#####     ] 50% (Phase 4)
 
 ## Performance Metrics
 
@@ -53,6 +53,7 @@ Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [#########
 | Phase 03-llava-inference-engine P01 | 2 | 2 tasks | 3 files |
 | Phase 03-llava-inference-engine P02 | 4 | 2 tasks | 4 files |
 | Phase 03-llava-inference-engine P03 | 5 | 2 tasks | 3 files |
+| Phase 04-narrative-beat-extraction-and-manifest-generation P01 | 2 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,12 @@ Recent decisions affecting current work:
 - [Phase 03-03]: LlavaEngine.__new__() bypass pattern for unit tests -- avoids server startup, VRAM check, and GPU_LOCK in mocked describe_frame tests
 - [Phase 03-03]: CLI Stage 4 inference runs only when --manifest flag absent (full pipeline); conform path unchanged
 - [Phase 03-03]: mmproj binary patch (42 bytes, clip.projector_type = "mlp") preferred over re-downloading model file -- existing weights are correct, only the projector_type metadata key was missing from llama.cpp 8156 spec; backup preserved at mmproj-model-f16.gguf.bak
+- [Phase 04-01]: CascadeClassifier loaded once at module level (not per-frame) to avoid 200ms startup penalty on each face detection call
+- [Phase 04-01]: RawSignals._histogram stored as non-dataclass field (repr=False, compare=False) so it travels with struct without affecting equality
+- [Phase 04-01]: assign_act: beat_type wins before positional check -- breath beat always returns breath act regardless of chron_pos
+- [Phase 04-01]: classify_beat rule order: breath first, then climax, money_shot, character_introduction, inciting_incident, relationship_beat, escalation_beat (catch-all)
+- [Phase 04-01]: normalize_signal_pool degenerate case (all equal) returns 0.5 per value to avoid false zero scoring
+- [Phase 04-01]: opencv-python-headless declared in pyproject.toml as explicit dependency (was installed but undeclared)
 
 ### Pending Todos
 
@@ -113,5 +120,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 03-03-PLAN.md -- all 3 tasks done, checkpoint approved, mmproj patched, Phase 3 fully complete
+Stopped at: Completed 04-01-PLAN.md -- 2 tasks done, ClipEntry extended + narrative package implemented, 65/65 non-inference tests passing
 Resume file: None
