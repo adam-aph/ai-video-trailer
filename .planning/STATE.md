@@ -132,5 +132,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 05-03-PLAN.md -- 2 tasks done, checkpoint guards + Stage 6 assembly in cli.py, 23 new tests in test_checkpoint.py and test_assembly.py
+Stopped at: 05-04 Task 1 complete (commit 500b70d) — automated pre-verify passed (119 tests); at checkpoint:human-verify Task 2
 Resume file: None
