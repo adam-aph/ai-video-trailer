@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cinecut"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "typer>=0.12.0",
+    "rich>=13.0.0",
+    "pysubs2==1.8.0",
+    "scenedetect[opencv-headless]==0.6.7.1",
+    "better-ffmpeg-progress==4.0.1",
+    "charset-normalizer>=3.0.0",
+]
+
+[project.scripts]
+cinecut = "cinecut.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cinecut"]
