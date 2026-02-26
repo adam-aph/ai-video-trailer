@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-02-26T19:55:17Z"
+last_updated: "2026-02-26T20:20:31.137Z"
 progress:
-  total_phases: 5
+  total_phases: 3
   completed_phases: 2
-  total_plans: 9
-  completed_plans: 9
+  total_plans: 11
+  completed_plans: 10
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** Given a feature film and its subtitle file, produce a narratively coherent, vibe-styled trailer that a human editor would be proud to show.
-**Current focus:** Phase 3 in progress -- 03-01 fully complete (human-verify approved), ready for 03-02
+**Current focus:** Phase 3 in progress -- 03-02 complete, ready for 03-03
 
 ## Current Position
 
 Phase: 3 of 5 (LLaVA Inference Engine) -- IN PROGRESS
-Plan: 2 of 3 in current phase -- READY (03-01 complete, ready for 03-02)
+Plan: 3 of 3 in current phase -- READY (03-02 complete, ready for 03-03)
 Status: Active
-Last activity: 2026-02-26 -- Completed 03-01 fully (human-verify checkpoint approved)
+Last activity: 2026-02-26 -- Completed 03-02 (LlavaEngine context manager + inference package)
 
-Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [##        ] 20% (Phase 3)
+Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [######    ] 60% (Phase 3)
 
 ## Performance Metrics
 
@@ -51,6 +51,7 @@ Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [##       
 | Phase 02-manifest-contract-vibes-and-conform P03 | 5 | 1 tasks | 3 files |
 | Phase 02-manifest-contract-vibes-and-conform P03 | 10 | 2 tasks | 3 files |
 | Phase 03-llava-inference-engine P01 | 2 | 2 tasks | 3 files |
+| Phase 03-llava-inference-engine P02 | 4 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -88,6 +89,10 @@ Recent decisions affecting current work:
 - [03-01]: InferenceError and VramError take only detail: str (no Path) -- inference errors are not file-path-specific
 - [03-01]: pytest.importorskip used for cinecut.inference.* imports so scaffold is collectible before plan-02 exists
 - [03-01]: integration mark uses _models_exist flag checking both GGUF and mmproj file presence
+- [Phase 03-02]: check_vram_free_mib() raises VramError on threshold violation (not just returns int) -- required to match pre-written test_vram_check scaffold
+- [Phase 03-02]: VRAM checked before GPU_LOCK acquired -- fail fast without holding lock unnecessarily
+- [Phase 03-02]: GPU_LOCK released in finally block of __exit__ -- guarantees release even if _stop raises
+- [Phase 03-02]: Lazy import of GPU_LOCK inside method bodies avoids circular import between engine.py and __init__.py
 
 ### Pending Todos
 
@@ -98,9 +103,10 @@ None yet.
 - [Research]: CUDA 11.4 / Kepler sm_35 compatibility must be validated before Phase 3 begins -- llama-server LLaVA inference on K6000 is untested
 - [Research]: LUT sourcing strategy (programmatic .cube generation vs. curated free LUTs) needs investigation during Phase 2 planning
 - [Research]: llama-server availability in the system llama.cpp build is unknown -- Phase 3 first-day investigation item
+- [03-02]: mmproj-model-f16.gguf (mys/ggml_llava-v1.5-7b) uses "unknown projector type" in current llama.cpp build (8156 / 3769fe6eb) -- test_server_health fails; plan-03 will need compatible model files or newer mmproj format
 
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 03-01-PLAN.md -- all 3 tasks done, human-verify checkpoint approved
+Stopped at: Completed 03-02-PLAN.md -- all 2 tasks done, cinecut.inference package fully implemented
 Resume file: None
