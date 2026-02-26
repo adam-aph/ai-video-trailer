@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-02-26T18:19:49.881Z"
+last_updated: "2026-02-26T19:06:22.977Z"
 progress:
-  total_phases: 1
+  total_phases: 2
   completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 8
+  completed_plans: 7
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** Given a feature film and its subtitle file, produce a narratively coherent, vibe-styled trailer that a human editor would be proud to show.
-**Current focus:** Phase 1: Ingestion Pipeline and CLI Shell -- ALL COMPLETE; ready for Phase 2
+**Current focus:** Phase 2: Manifest Contract, Vibes, and Conform -- Plan 02 complete; ready for Plan 03
 
 ## Current Position
 
 Phase: 2 of 5 (Manifest Contract, Vibes, and Conform)
-Plan: 1 of 5 in current phase (COMPLETE)
+Plan: 2 of 5 in current phase (COMPLETE)
 Status: Active
-Last activity: 2026-02-26 -- Completed 02-01: Manifest schema, vibe profiles, and LUT generation
+Last activity: 2026-02-26 -- Completed 02-02: FFmpeg conform pipeline and CLI --manifest/--review wiring
 
-Progress: [##########] 100% (Phase 1) | [##        ] 20% (Phase 2)
+Progress: [##########] 100% (Phase 1) | [####      ] 40% (Phase 2)
 
 ## Performance Metrics
 
@@ -47,6 +47,7 @@ Progress: [##########] 100% (Phase 1) | [##        ] 20% (Phase 2)
 - Trend: stable
 
 *Updated after each plan completion*
+| Phase 02-manifest-contract-vibes-and-conform P02 | 2 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -77,6 +78,9 @@ Recent decisions affecting current work:
 - [02-01]: scifi->sci-fi alias mapping added to normalize_vibe() for common misspelling variant
 - [02-01]: LUT_SIZE=33 (professional standard); ensure_luts() raises ValueError (not ConformError) on unknown vibe -- programming error not runtime failure
 - [02-01]: VibeProfile uses frozen=True dataclass so profile constants cannot be mutated at runtime
+- [Phase 02-02]: Short clips < 3.0s use volume=0dB single pass instead of two-pass loudnorm to avoid loudnorm instability on sub-3s audio (Act 3 montage clips)
+- [Phase 02-02]: make_output_path() replaces hyphens with underscores in vibe slug for filename safety (sci-fi -> sci_fi)
+- [Phase 02-02]: Vibe validation in CLI uses VIBE_PROFILES dict keys as single source of runtime truth
 
 ### Pending Todos
 
@@ -91,5 +95,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 02-01-PLAN.md -- Manifest schema, vibe profiles, and LUT generation
+Stopped at: Completed 02-02-PLAN.md -- FFmpeg conform pipeline and CLI --manifest/--review wiring
 Resume file: None

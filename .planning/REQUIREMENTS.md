@@ -32,22 +32,22 @@ Requirements for initial release. Each maps to a roadmap phase.
 - [ ] **EDIT-01**: AI pipeline generates a `TRAILER_MANIFEST.json` containing all clip decisions with source timecodes, beat type, reasoning, visual analysis, subtitle analysis, and per-clip audio/transition treatment
 - [ ] **EDIT-02**: System assembles clips according to a 3-act trailer structure: cold open, Act 1 setup, beat drop, Act 2 escalation, breath, Act 3 climax montage, title card, button
 - [ ] **EDIT-03**: System implements pacing curves — average cut duration decreases from Act 1 to Act 3 per vibe-defined parameters
-- [ ] **EDIT-04**: `--review` flag pauses the pipeline after manifest generation and waits for user to confirm before running the FFmpeg conform step
-- [ ] **EDIT-05**: Conform pipeline applies the manifest against the original source file with frame-accurate FFmpeg seeking (`-ss` before `-i`)
+- [x] **EDIT-04**: `--review` flag pauses the pipeline after manifest generation and waits for user to confirm before running the FFmpeg conform step
+- [x] **EDIT-05**: Conform pipeline applies the manifest against the original source file with frame-accurate FFmpeg seeking (`-ss` before `-i`)
 
 ### Vibes
 
 - [x] **VIBE-01**: System implements all 18 vibe profiles (Action, Adventure, Animation, Comedy, Crime, Documentary, Drama, Family, Fantasy, History, Horror, Music, Mystery, Romance, Sci-Fi, Thriller, War, Western) with concrete parameters: avg cut durations per act, clip count target, primary/secondary transitions, LUFS target, dialogue ratio, LUT specification, color temperature/contrast/saturation, pacing curve description
 - [x] **VIBE-02**: System includes or generates `.cube` LUT files for all 18 vibes (sourced from free/open libraries or programmatically generated via NumPy color transforms)
-- [ ] **VIBE-03**: System applies per-vibe LUT to all output clips via FFmpeg `lut3d` filter during the conform step
-- [ ] **VIBE-04**: System applies per-vibe LUFS audio normalization via FFmpeg `loudnorm` two-pass analysis and application
+- [x] **VIBE-03**: System applies per-vibe LUT to all output clips via FFmpeg `lut3d` filter during the conform step
+- [x] **VIBE-04**: System applies per-vibe LUFS audio normalization via FFmpeg `loudnorm` two-pass analysis and application
 
 ### CLI
 
 - [x] **CLI-01**: User invokes tool as `cinecut <video_file> --subtitle <subtitle_file> --vibe <vibe_name> [--review]`
 - [x] **CLI-02**: CLI provides Rich progress indicators for all long-running stages (proxy creation, keyframe extraction, LLaVA inference, manifest generation, conform)
 - [x] **CLI-03**: CLI provides actionable error messages when FFmpeg or llama-server failures occur (translates subprocess errors to human-readable guidance)
-- [ ] **CLI-04**: Output is an approximately 2-minute MP4 trailer at source resolution, written to `<source_basename>_trailer_<vibe>.mp4`
+- [x] **CLI-04**: Output is an approximately 2-minute MP4 trailer at source resolution, written to `<source_basename>_trailer_<vibe>.mp4`
 
 ## v2 Requirements
 
@@ -104,16 +104,16 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EDIT-01 | Phase 4 | Pending |
 | EDIT-02 | Phase 5 | Pending |
 | EDIT-03 | Phase 5 | Pending |
-| EDIT-04 | Phase 2 | Pending |
-| EDIT-05 | Phase 2 | Pending |
+| EDIT-04 | Phase 2 | Complete |
+| EDIT-05 | Phase 2 | Complete |
 | VIBE-01 | Phase 2 | Complete |
 | VIBE-02 | Phase 2 | Complete |
-| VIBE-03 | Phase 2 | Pending |
-| VIBE-04 | Phase 2 | Pending |
+| VIBE-03 | Phase 2 | Complete |
+| VIBE-04 | Phase 2 | Complete |
 | CLI-01 | Phase 1 | Complete |
 | CLI-02 | Phase 1 | Complete |
 | CLI-03 | Phase 1 | Complete |
-| CLI-04 | Phase 2 | Pending |
+| CLI-04 | Phase 2 | Complete |
 
 **Coverage:**
 - v1 requirements: 24 total
