@@ -101,6 +101,14 @@ None - no external service configuration required.
 - All verification tests pass: ACT_ORDER correct, sort order enforced, pacing curve computable, lavfi MP4 generation produces valid 7830-byte file
 - Ready for Phase 05-03: conform pipeline to use assemble_manifest() before FFmpeg concat
 
+## Self-Check: PASSED
+
+- FOUND: src/cinecut/assembly/__init__.py
+- FOUND: src/cinecut/assembly/ordering.py
+- FOUND: src/cinecut/assembly/title_card.py
+- FOUND: commit 835a0fc (Task 1)
+- FOUND: commit b277233 (Task 2)
+
 ---
 *Phase: 05-trailer-assembly-and-end-to-end-pipeline*
 *Completed: 2026-02-26*
