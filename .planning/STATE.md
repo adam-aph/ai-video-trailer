@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-02-26T16:18:23.203Z"
+last_updated: "2026-02-26T16:14:13Z"
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 5
-  completed_plans: 4
+  completed_plans: 5
 ---
 
 # Project State
@@ -18,29 +18,29 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** Given a feature film and its subtitle file, produce a narratively coherent, vibe-styled trailer that a human editor would be proud to show.
-**Current focus:** Phase 1: Ingestion Pipeline and CLI Shell -- 01-04 complete; 01-05 remaining
+**Current focus:** Phase 1: Ingestion Pipeline and CLI Shell -- ALL COMPLETE; ready for Phase 2
 
 ## Current Position
 
 Phase: 1 of 5 (Ingestion Pipeline and CLI Shell)
-Plan: 4 of 5 in current phase
-Status: In progress
-Last activity: 2026-02-26 -- Completed 01-04: Fix cinecut PATH for non-interactive shells
+Plan: 5 of 5 in current phase (COMPLETE)
+Status: Phase 1 complete
+Last activity: 2026-02-26 -- Completed 01-05: Fix CLI validation order (extension before existence checks)
 
-Progress: [###.......] 20%
+Progress: [##########] 100% (Phase 1)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
+- Total plans completed: 5
 - Average duration: 2 min
-- Total execution time: 0.10 hours
+- Total execution time: 0.17 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-ingestion-pipeline-and-cli-shell | 4 | 8 min | 2 min |
+| 01-ingestion-pipeline-and-cli-shell | 5 | 10 min | 2 min |
 
 **Recent Trend:**
 - Last 5 plans: 2 min
@@ -70,6 +70,9 @@ Recent decisions affecting current work:
 - [01-04]: Created ~/.bash_profile (not modifying ~/.profile) -- bash_profile takes precedence over profile for login shells; provides clean dedicated location
 - [01-04]: Also moved PATH line in ~/.bashrc to before the guard -- covers non-login non-interactive subshells that source ~/.bashrc directly
 - [01-04]: Removed both duplicate PATH entries from end of ~/.bashrc -- unreachable after guard; single authoritative export now at line 6
+- [01-05]: Removed exists=True from typer.Argument/Option -- Typer fires these at parse time before main() enters, preventing Rich panels from showing for wrong-extension nonexistent files
+- [01-05]: Manual if not video.exists() / if not subtitle.exists() checks positioned after respective extension checks in main() -- ensures extension always wins in error priority
+- [01-05]: typer.testing.CliRunner does not accept mix_stderr kwarg (Click-only); Typer CliRunner mixes stdout/stderr into result.output by default
 
 ### Pending Todos
 
@@ -84,5 +87,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 01-04-PLAN.md -- Fix cinecut PATH for non-interactive shells
+Stopped at: Completed 01-05-PLAN.md -- Fix CLI validation order (extension before existence checks)
 Resume file: None
