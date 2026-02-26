@@ -90,36 +90,36 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PIPE-01 | — | Pending |
-| PIPE-02 | — | Pending |
-| PIPE-03 | — | Pending |
-| PIPE-04 | — | Pending |
-| PIPE-05 | — | Pending |
-| INFR-01 | — | Pending |
-| INFR-02 | — | Pending |
-| INFR-03 | — | Pending |
-| NARR-01 | — | Pending |
-| NARR-02 | — | Pending |
-| NARR-03 | — | Pending |
-| EDIT-01 | — | Pending |
-| EDIT-02 | — | Pending |
-| EDIT-03 | — | Pending |
-| EDIT-04 | — | Pending |
-| EDIT-05 | — | Pending |
-| VIBE-01 | — | Pending |
-| VIBE-02 | — | Pending |
-| VIBE-03 | — | Pending |
-| VIBE-04 | — | Pending |
-| CLI-01 | — | Pending |
-| CLI-02 | — | Pending |
-| CLI-03 | — | Pending |
-| CLI-04 | — | Pending |
+| PIPE-01 | Phase 1 | Pending |
+| PIPE-02 | Phase 1 | Pending |
+| PIPE-03 | Phase 1 | Pending |
+| PIPE-04 | Phase 5 | Pending |
+| PIPE-05 | Phase 3 | Pending |
+| INFR-01 | Phase 3 | Pending |
+| INFR-02 | Phase 3 | Pending |
+| INFR-03 | Phase 3 | Pending |
+| NARR-01 | Phase 1 | Pending |
+| NARR-02 | Phase 4 | Pending |
+| NARR-03 | Phase 4 | Pending |
+| EDIT-01 | Phase 4 | Pending |
+| EDIT-02 | Phase 5 | Pending |
+| EDIT-03 | Phase 5 | Pending |
+| EDIT-04 | Phase 2 | Pending |
+| EDIT-05 | Phase 2 | Pending |
+| VIBE-01 | Phase 2 | Pending |
+| VIBE-02 | Phase 2 | Pending |
+| VIBE-03 | Phase 2 | Pending |
+| VIBE-04 | Phase 2 | Pending |
+| CLI-01 | Phase 1 | Pending |
+| CLI-02 | Phase 1 | Pending |
+| CLI-03 | Phase 1 | Pending |
+| CLI-04 | Phase 2 | Pending |
 
 **Coverage:**
 - v1 requirements: 24 total
-- Mapped to phases: 0
-- Unmapped: 24 ⚠️ (filled by roadmapper)
+- Mapped to phases: 24
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-02-26*
-*Last updated: 2026-02-26 after initial definition*
+*Last updated: 2026-02-26 after roadmap creation*
