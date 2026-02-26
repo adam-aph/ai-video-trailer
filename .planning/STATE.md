@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-02-26T23:30:14.789Z"
+last_updated: "2026-02-26T23:35:35.435Z"
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 17
-  completed_plans: 15
+  completed_plans: 16
 ---
 
 # Project State
@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-02-26)
 ## Current Position
 
 Phase: 5 of 5 (Trailer Assembly and End-to-End Pipeline) -- IN PROGRESS
-Plan: 2 of 4 in current phase -- COMPLETE
+Plan: 3 of 4 in current phase -- COMPLETE
 Status: Active
-Last activity: 2026-02-26 -- Completed 05-02: assembly package (ordering.py, title_card.py, __init__.py), EDIT-02 + EDIT-03 requirements complete
+Last activity: 2026-02-26 -- Completed 05-03: checkpoint guards + Stage 6 assembly in cli.py, conform_manifest extra_clip_paths, 23 new tests
 
-Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [##########] 100% (Phase 3) | [##########] 100% (Phase 4) | [#####     ] 50% (Phase 5)
+Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [##########] 100% (Phase 3) | [##########] 100% (Phase 4) | [#######   ] 75% (Phase 5)
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [#########
 | Phase 04-narrative-beat-extraction-and-manifest-generation P02 | 4 | 2 tasks | 3 files |
 | Phase 05-trailer-assembly-and-end-to-end-pipeline P01 | 1 | 1 tasks | 1 files |
 | Phase 05-trailer-assembly-and-end-to-end-pipeline P02 | 2 | 2 tasks | 3 files |
+| Phase 05-trailer-assembly-and-end-to-end-pipeline P03 | 5 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -115,6 +116,7 @@ Recent decisions affecting current work:
 - [Phase 05-01]: load_checkpoint returns None on corrupt JSON or TypeError — corrupt checkpoint triggers clean restart, not crash
 - [Phase 05-02]: title_card and button are pre-encoded MP4 files via FFmpeg lavfi, NOT ClipEntry objects — avoids extracting first 5s of film as fake segments
 - [Phase 05-02]: enforce_pacing_curve threshold is act3_avg_cut_s * 1.5 — only trims when clearly over target; MIN_CLIP_DURATION_S = 0.5s floor prevents sub-playable clips
+- [Phase 05-trailer-assembly-and-end-to-end-pipeline]: Stage 4 inference re-runs on resume (SceneDescription persistence deferred to v2); Stage 3 keyframes re-run (idempotent); extra_clip_paths uses list[Path]|None=None; --manifest path also runs assembly
 
 ### Pending Todos
 
@@ -130,5 +132,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 05-02-PLAN.md -- 2 tasks done, assembly package (ordering.py, title_card.py, __init__.py), EDIT-02 + EDIT-03 requirements complete
+Stopped at: Completed 05-03-PLAN.md -- 2 tasks done, checkpoint guards + Stage 6 assembly in cli.py, 23 new tests in test_checkpoint.py and test_assembly.py
 Resume file: None
