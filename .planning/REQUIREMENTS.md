@@ -9,7 +9,7 @@ Requirements for initial release. Each maps to a roadmap phase.
 
 ### Pipeline
 
-- [ ] **PIPE-01**: User can provide MKV/AVI/MP4 source video + SRT/ASS subtitle file as inputs to the CLI
+- [x] **PIPE-01**: User can provide MKV/AVI/MP4 source video + SRT/ASS subtitle file as inputs to the CLI
 - [ ] **PIPE-02**: System creates a 420p analysis proxy from the source video using FFmpeg before inference
 - [ ] **PIPE-03**: System extracts keyframes using a hybrid strategy: subtitle event midpoints (primary), FFmpeg scene-change detection (supplementary), interval fallback for subtitle gaps > 30s
 - [ ] **PIPE-04**: Pipeline persists stage-based checkpoint state files so a run can resume after failure without restarting from scratch
@@ -46,7 +46,7 @@ Requirements for initial release. Each maps to a roadmap phase.
 
 - [ ] **CLI-01**: User invokes tool as `cinecut <video_file> --subtitle <subtitle_file> --vibe <vibe_name> [--review]`
 - [ ] **CLI-02**: CLI provides Rich progress indicators for all long-running stages (proxy creation, keyframe extraction, LLaVA inference, manifest generation, conform)
-- [ ] **CLI-03**: CLI provides actionable error messages when FFmpeg or llama-server failures occur (translates subprocess errors to human-readable guidance)
+- [x] **CLI-03**: CLI provides actionable error messages when FFmpeg or llama-server failures occur (translates subprocess errors to human-readable guidance)
 - [ ] **CLI-04**: Output is an approximately 2-minute MP4 trailer at source resolution, written to `<source_basename>_trailer_<vibe>.mp4`
 
 ## v2 Requirements
@@ -90,7 +90,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PIPE-01 | Phase 1 | Pending |
+| PIPE-01 | Phase 1 | Complete |
 | PIPE-02 | Phase 1 | Pending |
 | PIPE-03 | Phase 1 | Pending |
 | PIPE-04 | Phase 5 | Pending |
@@ -112,7 +112,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | VIBE-04 | Phase 2 | Pending |
 | CLI-01 | Phase 1 | Pending |
 | CLI-02 | Phase 1 | Pending |
-| CLI-03 | Phase 1 | Pending |
+| CLI-03 | Phase 1 | Complete |
 | CLI-04 | Phase 2 | Pending |
 
 **Coverage:**

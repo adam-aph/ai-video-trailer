@@ -10,27 +10,27 @@ See: .planning/PROJECT.md (updated 2026-02-26)
 ## Current Position
 
 Phase: 1 of 5 (Ingestion Pipeline and CLI Shell)
-Plan: 0 of 3 in current phase
-Status: Ready to plan
-Last activity: 2026-02-26 -- Roadmap created with 5 phases, 24 requirements mapped
+Plan: 1 of 3 in current phase
+Status: In progress
+Last activity: 2026-02-26 -- Completed 01-01: Package scaffold and data contracts
 
-Progress: [..........] 0%
+Progress: [#.........] 7%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: 0 hours
+- Total plans completed: 1
+- Average duration: 2 min
+- Total execution time: 0.03 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 01-ingestion-pipeline-and-cli-shell | 1 | 2 min | 2 min |
 
 **Recent Trend:**
-- Last 5 plans: -
+- Last 5 plans: 2 min
 - Trend: -
 
 *Updated after each plan completion*
@@ -44,6 +44,9 @@ Recent decisions affecting current work:
 
 - [Roadmap]: EDIT-01 (manifest generation) assigned to Phase 4 (not Phase 2) because Phase 2 defines the schema and tests conform with hand-crafted manifests; Phase 4 generates real manifests from inference output
 - [Roadmap]: Phase 3 depends on Phase 1 only (not Phase 2), enabling parallel development if needed -- inference engine does not require the conform pipeline
+- [01-01]: stdlib dataclasses over Pydantic for ingestion-layer models -- validation overhead not needed at ingestion; Pydantic reserved for Phase 2 manifest work
+- [01-01]: hatchling over setuptools -- handles src/ layout automatically, no [tool.setuptools] sections needed
+- [01-01]: ProxyValidationError included beyond plan minimum -- handles FFmpeg exits 0 but produces corrupt proxy (Pitfall 3 from research)
 
 ### Pending Todos
 
@@ -58,5 +61,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Roadmap created, ready to plan Phase 1
+Stopped at: Completed 01-01-PLAN.md -- Package scaffold and data contracts
 Resume file: None
