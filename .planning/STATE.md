@@ -6,9 +6,9 @@ status: unknown
 last_updated: "2026-02-26T16:18:23.203Z"
 progress:
   total_phases: 1
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  completed_phases: 0
+  total_plans: 5
+  completed_plans: 4
 ---
 
 # Project State
@@ -18,14 +18,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** Given a feature film and its subtitle file, produce a narratively coherent, vibe-styled trailer that a human editor would be proud to show.
-**Current focus:** Phase 1: Ingestion Pipeline and CLI Shell -- COMPLETE; ready for Phase 2
+**Current focus:** Phase 1: Ingestion Pipeline and CLI Shell -- 01-04 complete; 01-05 remaining
 
 ## Current Position
 
 Phase: 1 of 5 (Ingestion Pipeline and CLI Shell)
-Plan: 3 of 3 in current phase
-Status: Phase 1 complete
-Last activity: 2026-02-26 -- Completed 01-03: CLI shell and hybrid keyframe extractor
+Plan: 4 of 5 in current phase
+Status: In progress
+Last activity: 2026-02-26 -- Completed 01-04: Fix cinecut PATH for non-interactive shells
 
 Progress: [###.......] 20%
 
@@ -40,7 +40,7 @@ Progress: [###.......] 20%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-ingestion-pipeline-and-cli-shell | 3 | 6 min | 2 min |
+| 01-ingestion-pipeline-and-cli-shell | 4 | 8 min | 2 min |
 
 **Recent Trend:**
 - Last 5 plans: 2 min
@@ -67,6 +67,9 @@ Recent decisions affecting current work:
 - [01-03]: progress_callback passed into extract_all_keyframes as optional Callable; CLI owns all Rich rendering, keyframes module has no Rich dependency
 - [01-03]: subtitle_midpoints accepted as set[float] in extract_all_keyframes; interval-fallback timestamps labelled scene_change (indistinguishable post-merge, acceptable)
 - [01-03]: --review and vibe validation are no-ops in Phase 1; deferred to Phase 2 where manifest/conform and vibe profiles are defined
+- [01-04]: Created ~/.bash_profile (not modifying ~/.profile) -- bash_profile takes precedence over profile for login shells; provides clean dedicated location
+- [01-04]: Also moved PATH line in ~/.bashrc to before the guard -- covers non-login non-interactive subshells that source ~/.bashrc directly
+- [01-04]: Removed both duplicate PATH entries from end of ~/.bashrc -- unreachable after guard; single authoritative export now at line 6
 
 ### Pending Todos
 
@@ -81,5 +84,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 01-03-PLAN.md -- CLI shell and hybrid keyframe extractor (Phase 1 complete)
+Stopped at: Completed 01-04-PLAN.md -- Fix cinecut PATH for non-interactive shells
 Resume file: None
