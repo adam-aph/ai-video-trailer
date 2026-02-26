@@ -49,12 +49,12 @@ Plans:
   3. System applies per-vibe .cube LUT files and LUFS audio normalization to output clips via FFmpeg during conform
   4. User can run with --review flag and the pipeline pauses after manifest generation, allowing inspection and editing before conform proceeds
   5. Given a hand-crafted manifest, the conform pipeline produces an approximately 2-minute MP4 trailer at source resolution written to `<source_basename>_trailer_<vibe>.mp4`
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
-- [ ] 02-03: TBD
+- [ ] 02-01-PLAN.md — Pydantic manifest schema, vibe profiles (18), LUT generation, ManifestError/ConformError
+- [ ] 02-02-PLAN.md — FFmpeg conform pipeline (extract + lut3d + loudnorm + concat) and CLI --manifest/--review wiring
+- [ ] 02-03-PLAN.md — Unit tests (schema validation, LUT ordering) and human-verify end-to-end conform
 
 ### Phase 3: LLaVA Inference Engine
 **Goal**: System can analyze extracted keyframes through LLaVA and produce structured scene descriptions while staying within the 12GB VRAM budget
