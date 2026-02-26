@@ -26,6 +26,7 @@ from cinecut.ingestion.keyframes import collect_keyframe_timestamps, extract_all
 from cinecut.inference.engine import run_inference_stage
 from cinecut.manifest.loader import load_manifest
 from cinecut.manifest.vibes import VIBE_PROFILES
+from cinecut.narrative.generator import run_narrative_stage
 from cinecut.conform.pipeline import conform_manifest
 
 # Default model paths for LLaVA inference
@@ -272,15 +273,48 @@ def main(
                 f"{skipped} skipped\n"
             )
 
+            # --- Stage 5: Narrative beat extraction and manifest generation (NARR-02, NARR-03, EDIT-01) ---
+            console.print("[bold]Stage 5/5:[/bold] Extracting narrative beats and generating manifest...")
+
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("{task.completed}/{task.total}"),
+                TimeElapsedColumn(),
+                console=console,
+            ) as progress:
+                narr_task = progress.add_task(
+                    "Scoring and classifying scenes...", total=len(inference_results)
+                )
+
+                def _narr_callback(current: int, total: int) -> None:
+                    progress.update(narr_task, completed=current)
+
+                manifest_path = run_narrative_stage(
+                    inference_results,
+                    dialogue_events,
+                    vibe_normalized,
+                    video,      # original source, NOT proxy
+                    work_dir,
+                    progress_callback=_narr_callback,
+                )
+
+            console.print(f"[green]Manifest written: [dim]{manifest_path.name}[/dim]\n")
+
+            # Load the generated manifest for optional conform
+            trailer_manifest = load_manifest(manifest_path)
+
             # --- Summary ---
             console.print(Panel(
-                f"[bold green]Ingestion + Inference complete[/bold green]\n\n"
+                f"[bold green]Pipeline complete[/bold green]\n\n"
                 f"  Proxy:      [dim]{proxy_path.name}[/dim]\n"
                 f"  Subtitles:  {len(dialogue_events)} events\n"
                 f"  Keyframes:  {len(keyframe_records)} frames\n"
                 f"  Described:  {len(inference_results) - skipped} frames ({skipped} skipped)\n"
+                f"  Manifest:   [dim]{manifest_path.name}[/dim]\n"
                 f"  Work dir:   [dim]{work_dir}[/dim]",
-                title="[green]Phase 3 Complete[/green]",
+                title="[green]Phase 4 Complete[/green]",
                 border_style="green",
             ))
 
