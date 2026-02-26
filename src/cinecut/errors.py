@@ -49,3 +49,27 @@ class ProxyValidationError(CineCutError):
         )
         self.proxy_path = proxy_path
         self.detail = detail
+
+
+class ManifestError(CineCutError):
+    def __init__(self, path: Path, detail: str) -> None:
+        super().__init__(
+            f"Cannot load manifest '{path.name}'.\n"
+            f"  Cause: {detail}\n"
+            f"  Check: Is the file valid JSON matching the TrailerManifest schema?\n"
+            f"  Tip: Validate against the schema with: python -c \"from cinecut.manifest.loader import load_manifest; load_manifest('{path}')\""
+        )
+        self.path = path
+        self.detail = detail
+
+
+class ConformError(CineCutError):
+    def __init__(self, output_path: Path, detail: str) -> None:
+        super().__init__(
+            f"FFmpeg conform failed for '{output_path.name}'.\n"
+            f"  Cause: {detail}\n"
+            f"  Check: Is FFmpeg installed and in PATH? Is the source file accessible?\n"
+            f"  Tip: Run the FFmpeg command manually with the same arguments to see full output."
+        )
+        self.output_path = output_path
+        self.detail = detail
