@@ -37,8 +37,8 @@ Requirements for initial release. Each maps to a roadmap phase.
 
 ### Vibes
 
-- [ ] **VIBE-01**: System implements all 18 vibe profiles (Action, Adventure, Animation, Comedy, Crime, Documentary, Drama, Family, Fantasy, History, Horror, Music, Mystery, Romance, Sci-Fi, Thriller, War, Western) with concrete parameters: avg cut durations per act, clip count target, primary/secondary transitions, LUFS target, dialogue ratio, LUT specification, color temperature/contrast/saturation, pacing curve description
-- [ ] **VIBE-02**: System includes or generates `.cube` LUT files for all 18 vibes (sourced from free/open libraries or programmatically generated via NumPy color transforms)
+- [x] **VIBE-01**: System implements all 18 vibe profiles (Action, Adventure, Animation, Comedy, Crime, Documentary, Drama, Family, Fantasy, History, Horror, Music, Mystery, Romance, Sci-Fi, Thriller, War, Western) with concrete parameters: avg cut durations per act, clip count target, primary/secondary transitions, LUFS target, dialogue ratio, LUT specification, color temperature/contrast/saturation, pacing curve description
+- [x] **VIBE-02**: System includes or generates `.cube` LUT files for all 18 vibes (sourced from free/open libraries or programmatically generated via NumPy color transforms)
 - [ ] **VIBE-03**: System applies per-vibe LUT to all output clips via FFmpeg `lut3d` filter during the conform step
 - [ ] **VIBE-04**: System applies per-vibe LUFS audio normalization via FFmpeg `loudnorm` two-pass analysis and application
 
@@ -106,8 +106,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EDIT-03 | Phase 5 | Pending |
 | EDIT-04 | Phase 2 | Pending |
 | EDIT-05 | Phase 2 | Pending |
-| VIBE-01 | Phase 2 | Pending |
-| VIBE-02 | Phase 2 | Pending |
+| VIBE-01 | Phase 2 | Complete |
+| VIBE-02 | Phase 2 | Complete |
 | VIBE-03 | Phase 2 | Pending |
 | VIBE-04 | Phase 2 | Pending |
 | CLI-01 | Phase 1 | Complete |

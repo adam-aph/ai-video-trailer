@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-02-26)
 
 ## Current Position
 
-Phase: 1 of 5 (Ingestion Pipeline and CLI Shell)
-Plan: 5 of 5 in current phase (COMPLETE)
-Status: Phase 1 complete
-Last activity: 2026-02-26 -- Completed 01-05: Fix CLI validation order (extension before existence checks)
+Phase: 2 of 5 (Manifest Contract, Vibes, and Conform)
+Plan: 1 of 5 in current phase (COMPLETE)
+Status: Active
+Last activity: 2026-02-26 -- Completed 02-01: Manifest schema, vibe profiles, and LUT generation
 
-Progress: [##########] 100% (Phase 1)
+Progress: [##########] 100% (Phase 1) | [##        ] 20% (Phase 2)
 
 ## Performance Metrics
 
@@ -73,6 +73,10 @@ Recent decisions affecting current work:
 - [01-05]: Removed exists=True from typer.Argument/Option -- Typer fires these at parse time before main() enters, preventing Rich panels from showing for wrong-extension nonexistent files
 - [01-05]: Manual if not video.exists() / if not subtitle.exists() checks positioned after respective extension checks in main() -- ensures extension always wins in error priority
 - [01-05]: typer.testing.CliRunner does not accept mix_stderr kwarg (Click-only); Typer CliRunner mixes stdout/stderr into result.output by default
+- [02-01]: VALID_VIBES defined as standalone frozenset in schema.py (not vibes.py) to avoid circular imports between schema and vibes modules
+- [02-01]: scifi->sci-fi alias mapping added to normalize_vibe() for common misspelling variant
+- [02-01]: LUT_SIZE=33 (professional standard); ensure_luts() raises ValueError (not ConformError) on unknown vibe -- programming error not runtime failure
+- [02-01]: VibeProfile uses frozen=True dataclass so profile constants cannot be mutated at runtime
 
 ### Pending Todos
 
@@ -87,5 +91,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 01-05-PLAN.md -- Fix CLI validation order (extension before existence checks)
+Stopped at: Completed 02-01-PLAN.md -- Manifest schema, vibe profiles, and LUT generation
 Resume file: None
