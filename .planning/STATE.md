@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-02-26T23:28:44.584Z"
+last_updated: "2026-02-26T23:30:14.789Z"
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 17
-  completed_plans: 14
+  completed_plans: 15
 ---
 
 # Project State
@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-02-26)
 
 ## Current Position
 
-Phase: 4 of 5 (Narrative Beat Extraction and Manifest Generation) -- COMPLETE
-Plan: 2 of 2 in current phase -- COMPLETE
+Phase: 5 of 5 (Trailer Assembly and End-to-End Pipeline) -- IN PROGRESS
+Plan: 2 of 4 in current phase -- COMPLETE
 Status: Active
-Last activity: 2026-02-26 -- Completed 04-02: generator.py + CLI Stage 5 + 31 unit tests, 96/96 non-inference tests passing
+Last activity: 2026-02-26 -- Completed 05-02: assembly package (ordering.py, title_card.py, __init__.py), EDIT-02 + EDIT-03 requirements complete
 
-Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [##########] 100% (Phase 3) | [##########] 100% (Phase 4)
+Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [##########] 100% (Phase 3) | [##########] 100% (Phase 4) | [#####     ] 50% (Phase 5)
 
 ## Performance Metrics
 
@@ -56,6 +56,7 @@ Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [#########
 | Phase 04-narrative-beat-extraction-and-manifest-generation P01 | 2 | 2 tasks | 5 files |
 | Phase 04-narrative-beat-extraction-and-manifest-generation P02 | 4 | 2 tasks | 3 files |
 | Phase 05-trailer-assembly-and-end-to-end-pipeline P01 | 1 | 1 tasks | 1 files |
+| Phase 05-trailer-assembly-and-end-to-end-pipeline P02 | 2 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -112,6 +113,8 @@ Recent decisions affecting current work:
 - [Phase 04-02]: Degenerate clips (end <= start after resolve_overlaps) are silently filtered before ClipEntry construction
 - [Phase 05-01]: save_checkpoint uses tempfile.mkstemp(dir=work_dir) + os.replace() — POSIX-atomic, power-loss-safe; os.replace requires same-mount temp file
 - [Phase 05-01]: load_checkpoint returns None on corrupt JSON or TypeError — corrupt checkpoint triggers clean restart, not crash
+- [Phase 05-02]: title_card and button are pre-encoded MP4 files via FFmpeg lavfi, NOT ClipEntry objects — avoids extracting first 5s of film as fake segments
+- [Phase 05-02]: enforce_pacing_curve threshold is act3_avg_cut_s * 1.5 — only trims when clearly over target; MIN_CLIP_DURATION_S = 0.5s floor prevents sub-playable clips
 
 ### Pending Todos
 
@@ -127,5 +130,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 04-02-PLAN.md -- 2 tasks done, generator.py + CLI Stage 5 + 31 tests, 96/96 non-inference tests passing
+Stopped at: Completed 05-02-PLAN.md -- 2 tasks done, assembly package (ordering.py, title_card.py, __init__.py), EDIT-02 + EDIT-03 requirements complete
 Resume file: None
