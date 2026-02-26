@@ -29,7 +29,7 @@ Requirements for initial release. Each maps to a roadmap phase.
 
 ### Edit & Manifest
 
-- [ ] **EDIT-01**: AI pipeline generates a `TRAILER_MANIFEST.json` containing all clip decisions with source timecodes, beat type, reasoning, visual analysis, subtitle analysis, and per-clip audio/transition treatment
+- [x] **EDIT-01**: AI pipeline generates a `TRAILER_MANIFEST.json` containing all clip decisions with source timecodes, beat type, reasoning, visual analysis, subtitle analysis, and per-clip audio/transition treatment
 - [ ] **EDIT-02**: System assembles clips according to a 3-act trailer structure: cold open, Act 1 setup, beat drop, Act 2 escalation, breath, Act 3 climax montage, title card, button
 - [ ] **EDIT-03**: System implements pacing curves — average cut duration decreases from Act 1 to Act 3 per vibe-defined parameters
 - [x] **EDIT-04**: `--review` flag pauses the pipeline after manifest generation and waits for user to confirm before running the FFmpeg conform step
@@ -101,7 +101,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | NARR-01 | Phase 1 | Complete |
 | NARR-02 | Phase 4 | Complete |
 | NARR-03 | Phase 4 | Complete |
-| EDIT-01 | Phase 4 | Pending |
+| EDIT-01 | Phase 4 | Complete |
 | EDIT-02 | Phase 5 | Pending |
 | EDIT-03 | Phase 5 | Pending |
 | EDIT-04 | Phase 2 | Complete |

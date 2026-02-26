@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-02-26T21:52:47Z"
+last_updated: "2026-02-26T21:59:45.194Z"
 progress:
-  total_phases: 5
-  completed_phases: 3
+  total_phases: 4
+  completed_phases: 4
   total_plans: 13
-  completed_plans: 12
+  completed_plans: 13
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** Given a feature film and its subtitle file, produce a narratively coherent, vibe-styled trailer that a human editor would be proud to show.
-**Current focus:** Phase 4 in progress -- 04-01 complete (narrative signals + scorer), 04-02 pending
+**Current focus:** Phase 4 COMPLETE -- 04-01 (signals + scorer) and 04-02 (generator + CLI Stage 5 + tests) both done; Phase 5 (final render conform) is next
 
 ## Current Position
 
-Phase: 4 of 5 (Narrative Beat Extraction and Manifest Generation)
-Plan: 1 of 2 in current phase -- COMPLETE
+Phase: 4 of 5 (Narrative Beat Extraction and Manifest Generation) -- COMPLETE
+Plan: 2 of 2 in current phase -- COMPLETE
 Status: Active
-Last activity: 2026-02-26 -- Completed 04-01: ClipEntry extended, signals.py + scorer.py implemented, 65 tests passing
+Last activity: 2026-02-26 -- Completed 04-02: generator.py + CLI Stage 5 + 31 unit tests, 96/96 non-inference tests passing
 
-Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [##########] 100% (Phase 3) | [#####     ] 50% (Phase 4)
+Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [##########] 100% (Phase 3) | [##########] 100% (Phase 4)
 
 ## Performance Metrics
 
@@ -54,6 +54,7 @@ Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [#########
 | Phase 03-llava-inference-engine P02 | 4 | 2 tasks | 4 files |
 | Phase 03-llava-inference-engine P03 | 5 | 2 tasks | 3 files |
 | Phase 04-narrative-beat-extraction-and-manifest-generation P01 | 2 | 2 tasks | 5 files |
+| Phase 04-narrative-beat-extraction-and-manifest-generation P02 | 4 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -105,6 +106,9 @@ Recent decisions affecting current work:
 - [Phase 04-01]: classify_beat rule order: breath first, then climax, money_shot, character_introduction, inciting_incident, relationship_beat, escalation_beat (catch-all)
 - [Phase 04-01]: normalize_signal_pool degenerate case (all equal) returns 0.5 per value to avoid false zero scoring
 - [Phase 04-01]: opencv-python-headless declared in pyproject.toml as explicit dependency (was installed but undeclared)
+- [Phase 04-02]: Mock target is cinecut.narrative.generator.get_film_duration_s (not signals module) -- direct import binding lives in generator namespace
+- [Phase 04-02]: get_nearest_emotion is separate from get_dialogue_excerpt -- returns emotion str (not float) for classify_beat input
+- [Phase 04-02]: Degenerate clips (end <= start after resolve_overlaps) are silently filtered before ClipEntry construction
 
 ### Pending Todos
 
@@ -120,5 +124,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 04-01-PLAN.md -- 2 tasks done, ClipEntry extended + narrative package implemented, 65/65 non-inference tests passing
+Stopped at: Completed 04-02-PLAN.md -- 2 tasks done, generator.py + CLI Stage 5 + 31 tests, 96/96 non-inference tests passing
 Resume file: None
