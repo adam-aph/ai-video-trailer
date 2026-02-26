@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-02-26)
 ## Current Position
 
 Phase: 1 of 5 (Ingestion Pipeline and CLI Shell)
-Plan: 1 of 3 in current phase
+Plan: 2 of 3 in current phase
 Status: In progress
-Last activity: 2026-02-26 -- Completed 01-01: Package scaffold and data contracts
+Last activity: 2026-02-26 -- Completed 01-02: Core ingestion modules (subtitle parser and proxy creator)
 
-Progress: [#.........] 7%
+Progress: [##........] 13%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 1
+- Total plans completed: 2
 - Average duration: 2 min
-- Total execution time: 0.03 hours
+- Total execution time: 0.07 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01-ingestion-pipeline-and-cli-shell | 1 | 2 min | 2 min |
+| 01-ingestion-pipeline-and-cli-shell | 2 | 4 min | 2 min |
 
 **Recent Trend:**
 - Last 5 plans: 2 min
-- Trend: -
+- Trend: stable
 
 *Updated after each plan completion*
 
@@ -47,6 +47,10 @@ Recent decisions affecting current work:
 - [01-01]: stdlib dataclasses over Pydantic for ingestion-layer models -- validation overhead not needed at ingestion; Pydantic reserved for Phase 2 manifest work
 - [01-01]: hatchling over setuptools -- handles src/ layout automatically, no [tool.setuptools] sections needed
 - [01-01]: ProxyValidationError included beyond plan minimum -- handles FFmpeg exits 0 but produces corrupt proxy (Pitfall 3 from research)
+- [01-02]: pysubs2 .plaintext property used (not .text) to strip ASS override tags cleanly, ensuring same code path for SRT and ASS
+- [01-02]: charset-normalizer best() on UnicodeDecodeError; SubtitleParseError raised if best() returns None -- never use errors='ignore'
+- [01-02]: FfmpegProcess wraps FFmpeg call; stderr written to log file by library, FfmpegProcessError caught and re-raised as ProxyCreationError
+- [01-02]: validate_proxy() deletes corrupt proxy on failure so next create_proxy() re-encodes rather than short-circuiting idempotency check on bad file
 
 ### Pending Todos
 
@@ -61,5 +65,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 01-01-PLAN.md -- Package scaffold and data contracts
+Stopped at: Completed 01-02-PLAN.md -- Core ingestion modules (subtitle parser and proxy creator)
 Resume file: None

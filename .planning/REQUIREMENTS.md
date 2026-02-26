@@ -10,7 +10,7 @@ Requirements for initial release. Each maps to a roadmap phase.
 ### Pipeline
 
 - [x] **PIPE-01**: User can provide MKV/AVI/MP4 source video + SRT/ASS subtitle file as inputs to the CLI
-- [ ] **PIPE-02**: System creates a 420p analysis proxy from the source video using FFmpeg before inference
+- [x] **PIPE-02**: System creates a 420p analysis proxy from the source video using FFmpeg before inference
 - [ ] **PIPE-03**: System extracts keyframes using a hybrid strategy: subtitle event midpoints (primary), FFmpeg scene-change detection (supplementary), interval fallback for subtitle gaps > 30s
 - [ ] **PIPE-04**: Pipeline persists stage-based checkpoint state files so a run can resume after failure without restarting from scratch
 - [ ] **PIPE-05**: All GPU operations run strictly sequentially — llama-server inference and FFmpeg GPU operations never run concurrently
@@ -23,7 +23,7 @@ Requirements for initial release. Each maps to a roadmap phase.
 
 ### Narrative Analysis
 
-- [ ] **NARR-01**: System parses SRT and ASS subtitle files and extracts dialogue, timestamps, and emotional keyword classification per event
+- [x] **NARR-01**: System parses SRT and ASS subtitle files and extracts dialogue, timestamps, and emotional keyword classification per event
 - [ ] **NARR-02**: System classifies each candidate scene into one of 7 beat types: inciting incident, character introduction, escalation beat, relationship beat, money shot, climax peak, breath
 - [ ] **NARR-03**: System scores "money shot" candidates using a weighted multi-signal model: motion magnitude, visual contrast, scene uniqueness, subtitle emotional weight, face presence, LLaVA confidence, saturation, and chronological position
 
@@ -91,14 +91,14 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | PIPE-01 | Phase 1 | Complete |
-| PIPE-02 | Phase 1 | Pending |
+| PIPE-02 | Phase 1 | Complete |
 | PIPE-03 | Phase 1 | Pending |
 | PIPE-04 | Phase 5 | Pending |
 | PIPE-05 | Phase 3 | Pending |
 | INFR-01 | Phase 3 | Pending |
 | INFR-02 | Phase 3 | Pending |
 | INFR-03 | Phase 3 | Pending |
-| NARR-01 | Phase 1 | Pending |
+| NARR-01 | Phase 1 | Complete |
 | NARR-02 | Phase 4 | Pending |
 | NARR-03 | Phase 4 | Pending |
 | EDIT-01 | Phase 4 | Pending |
