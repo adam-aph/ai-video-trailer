@@ -44,7 +44,6 @@ def main(
     video: Annotated[
         Path,
         typer.Argument(
-            exists=True,
             file_okay=True,
             dir_okay=False,
             resolve_path=True,
@@ -55,7 +54,6 @@ def main(
         Path,
         typer.Option(
             "--subtitle", "-s",
-            exists=True,
             file_okay=True,
             dir_okay=False,
             resolve_path=True,
@@ -82,10 +80,28 @@ def main(
         ))
         raise typer.Exit(1)
 
+    if not video.exists():
+        err_console.print(Panel(
+            f"File not found: [bold]{video}[/bold]\n"
+            f"Check that the path is correct and the file is accessible.",
+            title="[red]Input Error[/red]",
+            border_style="red",
+        ))
+        raise typer.Exit(1)
+
     if subtitle.suffix.lower() not in _VALID_SUBTITLE_EXTS:
         err_console.print(Panel(
             f"Unsupported subtitle format: [bold]{subtitle.suffix}[/bold]\n"
             f"Supported formats: {', '.join(sorted(_VALID_SUBTITLE_EXTS))}",
+            title="[red]Input Error[/red]",
+            border_style="red",
+        ))
+        raise typer.Exit(1)
+
+    if not subtitle.exists():
+        err_console.print(Panel(
+            f"File not found: [bold]{subtitle}[/bold]\n"
+            f"Check that the path is correct and the file is accessible.",
             title="[red]Input Error[/red]",
             border_style="red",
         ))
