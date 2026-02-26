@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Ingestion Pipeline and CLI Shell** - FFmpeg proxy creation, keyframe extraction, subtitle parsing, and the CLI entry point with progress and error handling (completed 2026-02-26)
 - [x] **Phase 2: Manifest Contract, Vibes, and Conform** - Pydantic manifest schema, all 18 vibe profiles with LUTs, high-bitrate FFmpeg conform pipeline, and --review workflow (completed 2026-02-26)
-- [ ] **Phase 3: LLaVA Inference Engine** - llama-server integration for persistent LLaVA inference, structured scene descriptions, and VRAM-aware sequential processing
+- [x] **Phase 3: LLaVA Inference Engine** - llama-server integration for persistent LLaVA inference, structured scene descriptions, and VRAM-aware sequential processing (completed 2026-02-26)
 - [ ] **Phase 4: Narrative Beat Extraction and Manifest Generation** - Beat classification (7 types), money shot scoring (8-signal model), and AI-driven manifest generation from real inference output
 - [ ] **Phase 5: Trailer Assembly and End-to-End Pipeline** - 3-act structure assembly with pacing curves, full pipeline orchestrator with checkpointing, and end-to-end integration
 
@@ -111,6 +111,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 |-------|----------------|--------|-----------|
 | 1. Ingestion Pipeline and CLI Shell | 5/5 | Complete   | 2026-02-26 |
 | 2. Manifest Contract, Vibes, and Conform | 3/3 | Complete   | 2026-02-26 |
-| 3. LLaVA Inference Engine | 2/3 | In Progress|  |
+| 3. LLaVA Inference Engine | 3/3 | Complete   | 2026-02-26 |
 | 4. Narrative Beat Extraction and Manifest Generation | 0/2 | Not started | - |
 | 5. Trailer Assembly and End-to-End Pipeline | 0/2 | Not started | - |

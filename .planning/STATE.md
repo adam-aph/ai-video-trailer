@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-02-26T20:20:31.137Z"
+last_updated: "2026-02-26T20:29:04.253Z"
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 11
-  completed_plans: 10
+  completed_plans: 11
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** Given a feature film and its subtitle file, produce a narratively coherent, vibe-styled trailer that a human editor would be proud to show.
-**Current focus:** Phase 3 in progress -- 03-02 complete, ready for 03-03
+**Current focus:** Phase 3 complete -- 03-03 done, checkpoint pending human verify (mmproj blocker)
 
 ## Current Position
 
-Phase: 3 of 5 (LLaVA Inference Engine) -- IN PROGRESS
-Plan: 3 of 3 in current phase -- READY (03-02 complete, ready for 03-03)
+Phase: 3 of 5 (LLaVA Inference Engine) -- COMPLETE (checkpoint pending)
+Plan: 3 of 3 in current phase -- COMPLETE
 Status: Active
-Last activity: 2026-02-26 -- Completed 03-02 (LlavaEngine context manager + inference package)
+Last activity: 2026-02-26 -- Completed 03-03 (describe_frame + CLI inference wiring + INFR-02 tests)
 
-Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [######    ] 60% (Phase 3)
+Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [##########] 100% (Phase 3)
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [######   
 | Phase 02-manifest-contract-vibes-and-conform P03 | 10 | 2 tasks | 3 files |
 | Phase 03-llava-inference-engine P01 | 2 | 2 tasks | 3 files |
 | Phase 03-llava-inference-engine P02 | 4 | 2 tasks | 4 files |
+| Phase 03-llava-inference-engine P03 | 5 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -93,6 +94,9 @@ Recent decisions affecting current work:
 - [Phase 03-02]: VRAM checked before GPU_LOCK acquired -- fail fast without holding lock unnecessarily
 - [Phase 03-02]: GPU_LOCK released in finally block of __exit__ -- guarantees release even if _stop raises
 - [Phase 03-02]: Lazy import of GPU_LOCK inside method bodies avoids circular import between engine.py and __init__.py
+- [Phase 03-03]: describe_frame accepts KeyframeRecord (not raw Path) -- consistent with pipeline data model
+- [Phase 03-03]: LlavaEngine.__new__() bypass pattern for unit tests -- avoids server startup, VRAM check, and GPU_LOCK in mocked describe_frame tests
+- [Phase 03-03]: CLI Stage 4 inference runs only when --manifest flag absent (full pipeline); conform path unchanged
 
 ### Pending Todos
 
@@ -108,5 +112,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 03-02-PLAN.md -- all 2 tasks done, cinecut.inference package fully implemented
+Stopped at: Completed 03-03-PLAN.md -- 2 tasks done, checkpoint pending human verify
 Resume file: None
