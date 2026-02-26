@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -56,6 +56,12 @@ class ClipEntry(BaseModel):
     ]
     transition: Literal["hard_cut", "crossfade", "fade_to_black", "fade_to_white"] = "hard_cut"
     dialogue_excerpt: str = ""
+
+    # Phase 4 additions (EDIT-01): analysis metadata
+    reasoning: Optional[str] = None
+    visual_analysis: Optional[str] = None
+    subtitle_analysis: Optional[str] = None
+    money_shot_score: Optional[float] = Field(default=None, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def end_after_start(self) -> "ClipEntry":
