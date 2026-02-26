@@ -1,12 +1,17 @@
 """LlavaEngine context manager: manages llama-server lifecycle with GPU_LOCK serialization."""
+import base64
+import json
 import subprocess
 import time
 from pathlib import Path
+from typing import Callable
 
 import requests
+from pydantic import ValidationError
 
 from cinecut.errors import InferenceError
 from cinecut.inference.vram import assert_vram_available
+from cinecut.models import KeyframeRecord
 
 
 class LlavaEngine:
@@ -141,3 +146,70 @@ class LlavaEngine:
         if self._log_file is not None:
             self._log_file.close()
             self._log_file = None
+
+    def describe_frame(
+        self,
+        record: KeyframeRecord,
+        timeout_s: float = 60.0,
+    ) -> "SceneDescription | None":
+        """Submit one frame to LLaVA. Returns None on timeout/error (skip with warning).
+
+        Never raises — the pipeline continues even if individual frames fail.
+        Uses json_schema constrained generation (NOT response_format).
+        """
+        from cinecut.inference.models import SCENE_DESCRIPTION_SCHEMA, validate_scene_description
+
+        img_bytes = Path(record.frame_path).read_bytes()
+        b64 = base64.b64encode(img_bytes).decode("ascii")
+        data_uri = f"data:image/jpeg;base64,{b64}"
+
+        payload = {
+            "temperature": 0.1,
+            "max_tokens": 256,
+            "json_schema": SCENE_DESCRIPTION_SCHEMA,
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": (
+                        "Describe this film scene. "
+                        "Respond with a JSON object with keys: "
+                        "visual_content, mood, action, setting."
+                    )},
+                    {"type": "image_url", "image_url": {"url": data_uri}},
+                ],
+            }],
+        }
+        try:
+            r = requests.post(
+                f"{self.base_url}/chat/completions",
+                json=payload,
+                timeout=timeout_s,
+            )
+            r.raise_for_status()
+            content = r.json()["choices"][0]["message"]["content"]
+            return validate_scene_description(json.loads(content.strip()))
+        except (requests.RequestException, KeyError, IndexError, json.JSONDecodeError, ValidationError):
+            # Frame is skipped — pipeline continues without raising globally.
+            return None
+
+
+def run_inference_stage(
+    records: list,  # list[KeyframeRecord]
+    model_path: Path,
+    mmproj_path: Path,
+    progress_callback: "Callable[[int, int], None] | None" = None,
+) -> list:  # list[tuple[KeyframeRecord, SceneDescription | None]]
+    """Run LLaVA inference on all keyframe records sequentially.
+
+    Returns list of (record, scene_description_or_none) tuples.
+    progress_callback(current: int, total: int) called after each frame.
+    """
+    results = []
+    total = len(records)
+    with LlavaEngine(model_path, mmproj_path) as engine:
+        for i, record in enumerate(records):
+            desc = engine.describe_frame(record)
+            results.append((record, desc))
+            if progress_callback:
+                progress_callback(i + 1, total)
+    return results
