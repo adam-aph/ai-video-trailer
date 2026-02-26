@@ -9,6 +9,9 @@ pipeline against a hand-crafted or generated TRAILER_MANIFEST.json.
 
 Phase 3 adds --model and --mmproj flags for LLaVA inference stage; runs
 automatically after keyframe extraction when no --manifest is provided.
+
+Phase 5 adds checkpoint-guarded resume (PIPE-04), 3-act assembly stage
+(EDIT-02, EDIT-03), and updated 7-stage pipeline numbering.
 """
 
 from pathlib import Path
@@ -28,10 +31,15 @@ from cinecut.manifest.loader import load_manifest
 from cinecut.manifest.vibes import VIBE_PROFILES
 from cinecut.narrative.generator import run_narrative_stage
 from cinecut.conform.pipeline import conform_manifest
+from cinecut.checkpoint import PipelineCheckpoint, load_checkpoint, save_checkpoint
+from cinecut.assembly import assemble_manifest
 
 # Default model paths for LLaVA inference
 _DEFAULT_MODEL_PATH = "/home/adamh/models/ggml-model-q4_k.gguf"
 _DEFAULT_MMPROJ_PATH = "/home/adamh/models/mmproj-model-f16.gguf"
+
+# Total pipeline stages (proxy, subtitles, keyframes, inference, narrative, assembly, conform)
+TOTAL_STAGES = 7
 
 app = typer.Typer(
     name="cinecut",
@@ -169,11 +177,19 @@ def main(
     work_dir = _setup_work_dir(video)
     console.print(f"Work directory: [dim]{work_dir}[/dim]\n")
 
+    # --- Checkpoint init (PIPE-04) ---
+    ckpt = load_checkpoint(work_dir)
+    if ckpt is not None and ckpt.source_file != str(video):
+        console.print("[yellow]Warning:[/] Stale checkpoint (different source file). Starting fresh.")
+        ckpt = None
+    if ckpt is None:
+        ckpt = PipelineCheckpoint(source_file=str(video), vibe=vibe_normalized)
+
     try:
         trailer_manifest = None
 
         if manifest is not None:
-            # --manifest provided: skip ingestion, load manifest, jump to conform
+            # --manifest provided: skip ingestion, load manifest, run assembly then conform
             if not manifest.exists():
                 err_console.print(Panel(
                     f"Manifest file not found: {manifest}",
@@ -194,55 +210,101 @@ def main(
                     border_style="red",
                 ))
                 raise typer.Exit(1)
+
+            # Assembly for --manifest path (no checkpoint)
+            reordered_manifest, extra_paths = assemble_manifest(trailer_manifest, video, work_dir)
         else:
-            # --- Stage 1: Proxy creation (PIPE-02) ---
-            # better-ffmpeg-progress handles its own Rich progress bar during the FFmpeg call.
-            console.print("[bold]Stage 1/3:[/bold] Creating 420p analysis proxy...")
-            proxy_path = create_proxy(video, work_dir)
-            console.print(f"[green]Proxy ready: [dim]{proxy_path.name}[/dim]\n")
+            # --- Stage 1/7: Proxy creation (PIPE-02) ---
+            if not ckpt.is_stage_complete("proxy"):
+                console.print(f"[bold]Stage 1/{TOTAL_STAGES}:[/bold] Creating 420p analysis proxy...")
+                # better-ffmpeg-progress handles its own Rich progress bar during the FFmpeg call.
+                proxy_path = create_proxy(video, work_dir)
+                ckpt.proxy_path = str(proxy_path)
+                ckpt.mark_stage_complete("proxy")
+                save_checkpoint(ckpt, work_dir)
+                console.print(f"[green]Proxy ready: [dim]{proxy_path.name}[/dim]\n")
+            else:
+                proxy_path = Path(ckpt.proxy_path)
+                console.print(f"[yellow]Resuming:[/] Stage 1 already complete (proxy: {proxy_path.name})\n")
 
-            # --- Stage 2: Subtitle parsing (NARR-01) ---
-            console.print("[bold]Stage 2/3:[/bold] Parsing subtitles...")
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                TimeElapsedColumn(),
-                console=console,
-                transient=True,
-            ) as progress:
-                task = progress.add_task("Parsing subtitle events...", total=None)
+            # --- Stage 2/7: Subtitle parsing (NARR-01) ---
+            if not ckpt.is_stage_complete("subtitles"):
+                console.print(f"[bold]Stage 2/{TOTAL_STAGES}:[/bold] Parsing subtitles...")
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    TimeElapsedColumn(),
+                    console=console,
+                    transient=True,
+                ) as progress:
+                    task = progress.add_task("Parsing subtitle events...", total=None)
+                    dialogue_events = parse_subtitles(subtitle)
+                    progress.update(task, description=f"Parsed {len(dialogue_events)} dialogue events")
+                ckpt.dialogue_event_count = len(dialogue_events)
+                ckpt.mark_stage_complete("subtitles")
+                save_checkpoint(ckpt, work_dir)
+                console.print(f"[green]Parsed {len(dialogue_events)} dialogue events\n")
+            else:
+                console.print(f"[yellow]Resuming:[/] Stage 2 already complete — re-parsing subtitles for downstream use\n")
                 dialogue_events = parse_subtitles(subtitle)
-                progress.update(task, description=f"Parsed {len(dialogue_events)} dialogue events")
-            console.print(f"[green]Parsed {len(dialogue_events)} dialogue events\n")
 
-            # --- Stage 3: Keyframe extraction (PIPE-03) ---
-            console.print("[bold]Stage 3/3:[/bold] Extracting keyframes...")
-            subtitle_midpoints = [e.midpoint_s for e in dialogue_events]
+            # --- Stage 3/7: Keyframe extraction (PIPE-03) ---
+            if not ckpt.is_stage_complete("keyframes"):
+                console.print(f"[bold]Stage 3/{TOTAL_STAGES}:[/bold] Extracting keyframes...")
+                subtitle_midpoints = [e.midpoint_s for e in dialogue_events]
 
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TextColumn("{task.completed}/{task.total}"),
-                TimeElapsedColumn(),
-                console=console,
-            ) as progress:
-                ts_task = progress.add_task("Collecting timestamps (scene detection)...", total=None)
-                timestamps = collect_keyframe_timestamps(proxy_path, subtitle_midpoints)
-                progress.update(ts_task, description=f"Collected {len(timestamps)} keyframe timestamps", completed=1, total=1)
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TextColumn("{task.completed}/{task.total}"),
+                    TimeElapsedColumn(),
+                    console=console,
+                ) as progress:
+                    ts_task = progress.add_task("Collecting timestamps (scene detection)...", total=None)
+                    timestamps = collect_keyframe_timestamps(proxy_path, subtitle_midpoints)
+                    progress.update(ts_task, description=f"Collected {len(timestamps)} keyframe timestamps", completed=1, total=1)
 
-                kf_task = progress.add_task("Extracting frames...", total=len(timestamps))
-                keyframe_records = extract_all_keyframes(
-                    proxy_path,
-                    timestamps,
-                    work_dir / "keyframes",
-                    subtitle_midpoints=set(subtitle_midpoints),
-                    progress_callback=lambda: progress.advance(kf_task),
-                )
-            console.print(f"[green]Extracted {len(keyframe_records)} keyframes\n")
+                    kf_task = progress.add_task("Extracting frames...", total=len(timestamps))
+                    keyframe_records = extract_all_keyframes(
+                        proxy_path,
+                        timestamps,
+                        work_dir / "keyframes",
+                        subtitle_midpoints=set(subtitle_midpoints),
+                        progress_callback=lambda: progress.advance(kf_task),
+                    )
+                ckpt.keyframe_count = len(keyframe_records)
+                ckpt.mark_stage_complete("keyframes")
+                save_checkpoint(ckpt, work_dir)
+                console.print(f"[green]Extracted {len(keyframe_records)} keyframes\n")
+            else:
+                # Keyframe files are already in work_dir/keyframes/ — re-run extraction (idempotent)
+                console.print(f"[yellow]Resuming:[/] Stage 3 already complete — re-extracting keyframes for inference\n")
+                subtitle_midpoints = [e.midpoint_s for e in dialogue_events]
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TextColumn("{task.completed}/{task.total}"),
+                    TimeElapsedColumn(),
+                    console=console,
+                ) as progress:
+                    ts_task = progress.add_task("Collecting timestamps (scene detection)...", total=None)
+                    timestamps = collect_keyframe_timestamps(proxy_path, subtitle_midpoints)
+                    progress.update(ts_task, description=f"Collected {len(timestamps)} keyframe timestamps", completed=1, total=1)
 
-            # --- Stage 4: LLaVA Inference (INFR-02) ---
-            console.print("[bold]Stage 4/4:[/bold] Running LLaVA inference on keyframes...")
+                    kf_task = progress.add_task("Extracting frames...", total=len(timestamps))
+                    keyframe_records = extract_all_keyframes(
+                        proxy_path,
+                        timestamps,
+                        work_dir / "keyframes",
+                        subtitle_midpoints=set(subtitle_midpoints),
+                        progress_callback=lambda: progress.advance(kf_task),
+                    )
+
+            # --- Stage 4/7: LLaVA Inference (INFR-02) ---
+            # TODO: inference resume requires persisting SceneDescription results; deferred to v2
+            console.print(f"[bold]Stage 4/{TOTAL_STAGES}:[/bold] Running LLaVA inference on keyframes...")
             inference_results = []
 
             with Progress(
@@ -268,42 +330,73 @@ def main(
                 )
 
             skipped = sum(1 for _, desc in inference_results if desc is None)
+            ckpt.inference_complete = True
+            save_checkpoint(ckpt, work_dir)
             console.print(
                 f"[green]Inference complete:[/] {len(inference_results)} frames processed, "
                 f"{skipped} skipped\n"
             )
 
-            # --- Stage 5: Narrative beat extraction and manifest generation (NARR-02, NARR-03, EDIT-01) ---
-            console.print("[bold]Stage 5/5:[/bold] Extracting narrative beats and generating manifest...")
+            # --- Stage 5/7: Narrative beat extraction and manifest generation (NARR-02, NARR-03, EDIT-01) ---
+            if not ckpt.is_stage_complete("narrative"):
+                console.print(f"[bold]Stage 5/{TOTAL_STAGES}:[/bold] Extracting narrative beats and generating manifest...")
 
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TextColumn("{task.completed}/{task.total}"),
-                TimeElapsedColumn(),
-                console=console,
-            ) as progress:
-                narr_task = progress.add_task(
-                    "Scoring and classifying scenes...", total=len(inference_results)
-                )
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TextColumn("{task.completed}/{task.total}"),
+                    TimeElapsedColumn(),
+                    console=console,
+                ) as progress:
+                    narr_task = progress.add_task(
+                        "Scoring and classifying scenes...", total=len(inference_results)
+                    )
 
-                def _narr_callback(current: int, total: int) -> None:
-                    progress.update(narr_task, completed=current)
+                    def _narr_callback(current: int, total: int) -> None:
+                        progress.update(narr_task, completed=current)
 
-                manifest_path = run_narrative_stage(
-                    inference_results,
-                    dialogue_events,
-                    vibe_normalized,
-                    video,      # original source, NOT proxy
-                    work_dir,
-                    progress_callback=_narr_callback,
-                )
+                    manifest_path = run_narrative_stage(
+                        inference_results,
+                        dialogue_events,
+                        vibe_normalized,
+                        video,      # original source, NOT proxy
+                        work_dir,
+                        progress_callback=_narr_callback,
+                    )
 
-            console.print(f"[green]Manifest written: [dim]{manifest_path.name}[/dim]\n")
+                ckpt.manifest_path = str(manifest_path)
+                ckpt.mark_stage_complete("narrative")
+                save_checkpoint(ckpt, work_dir)
+                console.print(f"[green]Manifest written: [dim]{manifest_path.name}[/dim]\n")
+            else:
+                manifest_path = Path(ckpt.manifest_path)
+                console.print(f"[yellow]Resuming:[/] Stage 5 already complete (manifest: {manifest_path.name})\n")
 
-            # Load the generated manifest for optional conform
             trailer_manifest = load_manifest(manifest_path)
+
+            # --- Stage 6/7: 3-act assembly and pacing enforcement (EDIT-02, EDIT-03) ---
+            if not ckpt.is_stage_complete("assembly"):
+                console.print(f"[bold]Stage 6/{TOTAL_STAGES}:[/bold] Assembling 3-act structure...")
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    TimeElapsedColumn(),
+                    console=console,
+                    transient=True,
+                ) as progress:
+                    asm_task = progress.add_task("Ordering clips and generating title card...", total=None)
+                    reordered_manifest, extra_paths = assemble_manifest(trailer_manifest, video, work_dir)
+                    progress.update(asm_task, description="Assembly complete")
+                ckpt.assembly_manifest_path = str(work_dir / "ASSEMBLY_MANIFEST.json")
+                ckpt.mark_stage_complete("assembly")
+                save_checkpoint(ckpt, work_dir)
+                console.print(f"[green]Assembly complete: {len(reordered_manifest.clips)} clips ordered\n")
+            else:
+                from cinecut.manifest.loader import load_manifest as _lm
+                reordered_manifest = _lm(Path(ckpt.assembly_manifest_path))
+                _, extra_paths = assemble_manifest(trailer_manifest, video, work_dir)
+                console.print(f"[yellow]Resuming:[/] Stage 6 already complete\n")
 
             # --- Summary ---
             console.print(Panel(
@@ -313,12 +406,13 @@ def main(
                 f"  Keyframes:  {len(keyframe_records)} frames\n"
                 f"  Described:  {len(inference_results) - skipped} frames ({skipped} skipped)\n"
                 f"  Manifest:   [dim]{manifest_path.name}[/dim]\n"
+                f"  Assembly:   {len(reordered_manifest.clips)} clips ordered\n"
                 f"  Work dir:   [dim]{work_dir}[/dim]",
-                title="[green]Phase 4 Complete[/green]",
+                title="[green]Phase 5 Complete[/green]",
                 border_style="green",
             ))
 
-        # --- Stage 4: Conform (EDIT-05 / CLI-04) ---
+        # --- Stage 7/7: FFmpeg conform (EDIT-05 / CLI-04) ---
         if trailer_manifest is not None:
             # --review pause (EDIT-04): inspect manifest before conform
             if review:
@@ -326,7 +420,7 @@ def main(
                 console.print("[dim]Inspect clip decisions in the manifest, then confirm to continue.[/dim]\n")
                 typer.confirm("Proceed with FFmpeg conform?", abort=True)
 
-            console.print("[bold]Stage 4/4:[/bold] Running FFmpeg conform...")
+            console.print(f"[bold]Stage 7/{TOTAL_STAGES}:[/bold] Running FFmpeg conform...")
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
@@ -334,16 +428,16 @@ def main(
                 console=console,
             ) as progress:
                 conform_task = progress.add_task(
-                    f"Processing {len(trailer_manifest.clips)} clips...", total=None
+                    f"Processing {len(reordered_manifest.clips)} clips...", total=None
                 )
-                output_path = conform_manifest(trailer_manifest, video, work_dir)
+                output_path = conform_manifest(reordered_manifest, video, work_dir, extra_clip_paths=extra_paths)
                 progress.update(conform_task, description="Conform complete")
 
             console.print(Panel(
                 f"[bold green]Conform complete[/bold green]\n\n"
                 f"  Output: [dim]{output_path}[/dim]\n"
-                f"  Clips:  {len(trailer_manifest.clips)}\n"
-                f"  Vibe:   {trailer_manifest.vibe}",
+                f"  Clips:  {len(reordered_manifest.clips)}\n"
+                f"  Vibe:   {reordered_manifest.vibe}",
                 title="[green]Trailer Ready[/green]",
                 border_style="green",
             ))

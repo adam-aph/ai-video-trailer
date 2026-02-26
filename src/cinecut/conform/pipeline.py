@@ -202,6 +202,7 @@ def conform_manifest(
     manifest: TrailerManifest,
     source: Path,
     work_dir: Path,
+    extra_clip_paths: list[Path] | None = None,
 ) -> Path:
     """Orchestrate full conform: extract+grade each clip, then concatenate.
 
@@ -209,6 +210,9 @@ def conform_manifest(
         manifest: Validated TrailerManifest with clips to extract.
         source: Original video file path (used for extraction and output naming).
         work_dir: Working directory for intermediate files (luts/ and conform_clips/).
+        extra_clip_paths: Optional list of pre-encoded clip paths (e.g. title_card.mp4,
+            button.mp4) to append AFTER the manifest clips in the final concat list.
+            Backward-compatible — defaults to None (no extra clips appended).
 
     Returns:
         Path to the final trailer MP4.
@@ -240,6 +244,10 @@ def conform_manifest(
             output_path=output,
         )
         clip_output_paths.append(output)
+
+    # Append pre-encoded extra clips (title_card, button) after act3 clips
+    if extra_clip_paths:
+        clip_output_paths.extend(extra_clip_paths)
 
     # Build final output path and concatenate
     final_output_path = make_output_path(source, manifest.vibe)
