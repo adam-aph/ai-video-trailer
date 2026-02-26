@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-02-26T22:03:28.238Z"
+last_updated: "2026-02-26T23:28:44.584Z"
 progress:
-  total_phases: 4
+  total_phases: 5
   completed_phases: 4
-  total_plans: 13
-  completed_plans: 13
+  total_plans: 17
+  completed_plans: 14
 ---
 
 # Project State
@@ -55,6 +55,7 @@ Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [#########
 | Phase 03-llava-inference-engine P03 | 5 | 2 tasks | 3 files |
 | Phase 04-narrative-beat-extraction-and-manifest-generation P01 | 2 | 2 tasks | 5 files |
 | Phase 04-narrative-beat-extraction-and-manifest-generation P02 | 4 | 2 tasks | 3 files |
+| Phase 05-trailer-assembly-and-end-to-end-pipeline P01 | 1 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -109,6 +110,8 @@ Recent decisions affecting current work:
 - [Phase 04-02]: Mock target is cinecut.narrative.generator.get_film_duration_s (not signals module) -- direct import binding lives in generator namespace
 - [Phase 04-02]: get_nearest_emotion is separate from get_dialogue_excerpt -- returns emotion str (not float) for classify_beat input
 - [Phase 04-02]: Degenerate clips (end <= start after resolve_overlaps) are silently filtered before ClipEntry construction
+- [Phase 05-01]: save_checkpoint uses tempfile.mkstemp(dir=work_dir) + os.replace() — POSIX-atomic, power-loss-safe; os.replace requires same-mount temp file
+- [Phase 05-01]: load_checkpoint returns None on corrupt JSON or TypeError — corrupt checkpoint triggers clean restart, not crash
 
 ### Pending Todos
 

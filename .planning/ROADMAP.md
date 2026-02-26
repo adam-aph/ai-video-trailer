@@ -115,4 +115,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 | 2. Manifest Contract, Vibes, and Conform | 3/3 | Complete   | 2026-02-26 |
 | 3. LLaVA Inference Engine | 3/3 | Complete   | 2026-02-26 |
 | 4. Narrative Beat Extraction and Manifest Generation | 2/2 | Complete   | 2026-02-26 |
-| 5. Trailer Assembly and End-to-End Pipeline | 0/2 | Not started | - |
+| 5. Trailer Assembly and End-to-End Pipeline | 1/4 | In Progress|  |

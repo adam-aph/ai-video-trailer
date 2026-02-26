@@ -12,7 +12,7 @@ Requirements for initial release. Each maps to a roadmap phase.
 - [x] **PIPE-01**: User can provide MKV/AVI/MP4 source video + SRT/ASS subtitle file as inputs to the CLI
 - [x] **PIPE-02**: System creates a 420p analysis proxy from the source video using FFmpeg before inference
 - [x] **PIPE-03**: System extracts keyframes using a hybrid strategy: subtitle event midpoints (primary), FFmpeg scene-change detection (supplementary), interval fallback for subtitle gaps > 30s
-- [ ] **PIPE-04**: Pipeline persists stage-based checkpoint state files so a run can resume after failure without restarting from scratch
+- [x] **PIPE-04**: Pipeline persists stage-based checkpoint state files so a run can resume after failure without restarting from scratch
 - [x] **PIPE-05**: All GPU operations run strictly sequentially — llama-server inference and FFmpeg GPU operations never run concurrently
 
 ### Inference
@@ -93,7 +93,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PIPE-01 | Phase 1 | Complete |
 | PIPE-02 | Phase 1 | Complete |
 | PIPE-03 | Phase 1 | Complete |
-| PIPE-04 | Phase 5 | Pending |
+| PIPE-04 | Phase 5 | Complete |
 | PIPE-05 | Phase 3 | Complete |
 | INFR-01 | Phase 3 | Complete |
 | INFR-02 | Phase 3 | Complete |
