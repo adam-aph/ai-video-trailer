@@ -1,5 +1,5 @@
 ---
-status: complete
+status: diagnosed
 phase: 01-ingestion-pipeline-and-cli-shell
 source: 01-01-SUMMARY.md, 01-02-SUMMARY.md, 01-03-SUMMARY.md
 started: 2026-02-26T16:30:00Z
@@ -52,22 +52,25 @@ skipped: 0
   reason: "User reported: cinecut: command not found"
   severity: blocker
   test: 1
-  root_cause: "Script is correctly installed at ~/.local/bin/cinecut but ~/.local/bin is not on PATH in the user's interactive shell. ~/.local/bin is added by .profile (login shells) and .bashrc (interactive shells) but the current shell session does not have it."
+  root_cause: "~/.bashrc has a non-interactive shell early-exit guard (line 6-8: case $- in) that skips the entire file including the PATH export at line 124. ~/.profile adds ~/.local/bin only for login shells. No mechanism adds ~/.local/bin for non-login non-interactive shells. Not a code bug — environment setup issue."
   artifacts:
-    - path: "/home/adamh/.local/bin/cinecut"
-      issue: "Script exists but PATH doesn't include ~/.local/bin in the active shell"
-    - path: "/home/adamh/ai-video-trailer/pyproject.toml"
-      issue: "Entry point declaration is correct — not a code issue"
+    - path: "~/.bashrc"
+      issue: "PATH export at line 124-125 is after the non-interactive guard at line 6 — unreachable in non-interactive shells"
+    - path: "~/.profile"
+      issue: "Adds ~/.local/bin but only for login shells"
   missing:
-    - "Add ~/.local/bin to PATH in current shell session or shell config"
-  debug_session: ""
+    - "Move PATH export to before the non-interactive guard in ~/.bashrc, or add it to ~/.bash_profile"
+  debug_session: ".planning/debug/gap1-cinecut-not-on-path.md"
 
 - truth: "Running cinecut with an unsupported file extension shows an error panel explaining the type is not supported"
   status: failed
   reason: "Error panel shown but for 'file does not exist' not 'wrong extension' — Typer file-existence check fires before extension validator; extension validation unconfirmed"
   severity: minor
   test: 2
-  root_cause: ""
-  artifacts: []
-  missing: []
-  debug_session: ""
+  root_cause: "VIDEO argument and --subtitle option both declare exists=True (cli.py lines 47, 59), which Click validates during argument parsing before main() is called. Extension check at cli.py line 76-83 is only reached if file exists. When file doesn't exist, Click fires its own error — bypassing the Rich error panel. Extension check IS correct and works when file exists (confirmed by debugger)."
+  artifacts:
+    - path: "src/cinecut/cli.py"
+      issue: "exists=True on VIDEO (line 47) and --subtitle (line 59) causes Click to validate existence before our extension check at line 76"
+  missing:
+    - "Remove exists=True from VIDEO and --subtitle; add manual existence checks inside main() after extension checks, using Rich error panels"
+  debug_session: ".planning/debug/gap2-extension-validation-order.md"
