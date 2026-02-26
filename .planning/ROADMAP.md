@@ -80,11 +80,11 @@ Plans:
   1. System classifies each candidate scene into one of 7 beat types (inciting incident, character introduction, escalation beat, relationship beat, money shot, climax peak, breath) using combined subtitle and visual signals
   2. System scores money shot candidates using all 8 weighted signals (motion magnitude, visual contrast, scene uniqueness, subtitle emotional weight, face presence, LLaVA confidence, saturation, chronological position)
   3. System generates a complete TRAILER_MANIFEST.json from real inference output with beat type, reasoning, visual analysis, subtitle analysis, and per-clip audio/transition treatment for every selected clip
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 04-01: TBD
-- [ ] 04-02: TBD
+- [ ] 04-01-PLAN.md — ClipEntry schema extension (4 Optional fields) + narrative package: signals.py (8-signal extraction) and scorer.py (normalization, weighted scoring, beat classification)
+- [ ] 04-02-PLAN.md — generator.py (manifest assembly pipeline), CLI Stage 5 wiring, and test_narrative.py unit tests
 
 ### Phase 5: Trailer Assembly and End-to-End Pipeline
 **Goal**: System produces a complete, narratively coherent trailer from any feature film by assembling clips into a 3-act structure with vibe-driven pacing and surviving failures gracefully
