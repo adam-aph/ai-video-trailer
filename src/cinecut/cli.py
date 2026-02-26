@@ -6,6 +6,9 @@ bars and human-readable error panels.
 
 Phase 2 adds --manifest and --review flags for running the FFmpeg conform
 pipeline against a hand-crafted or generated TRAILER_MANIFEST.json.
+
+Phase 3 adds --model and --mmproj flags for LLaVA inference stage; runs
+automatically after keyframe extraction when no --manifest is provided.
 """
 
 from pathlib import Path
@@ -20,9 +23,14 @@ from cinecut.errors import CineCutError, ManifestError, ConformError
 from cinecut.ingestion.proxy import create_proxy
 from cinecut.ingestion.subtitles import parse_subtitles
 from cinecut.ingestion.keyframes import collect_keyframe_timestamps, extract_all_keyframes
+from cinecut.inference.engine import run_inference_stage
 from cinecut.manifest.loader import load_manifest
 from cinecut.manifest.vibes import VIBE_PROFILES
 from cinecut.conform.pipeline import conform_manifest
+
+# Default model paths for LLaVA inference
+_DEFAULT_MODEL_PATH = "/home/adamh/models/ggml-model-q4_k.gguf"
+_DEFAULT_MMPROJ_PATH = "/home/adamh/models/mmproj-model-f16.gguf"
 
 app = typer.Typer(
     name="cinecut",
@@ -84,6 +92,26 @@ def main(
             help="Path to TRAILER_MANIFEST.json. Skips ingestion stages and runs conform directly.",
         ),
     ] = None,
+    model: Annotated[
+        Path,
+        typer.Option(
+            "--model",
+            file_okay=True,
+            dir_okay=False,
+            resolve_path=True,
+            help=f"Path to LLaVA GGUF model file (default: {_DEFAULT_MODEL_PATH}).",
+        ),
+    ] = Path(_DEFAULT_MODEL_PATH),
+    mmproj: Annotated[
+        Path,
+        typer.Option(
+            "--mmproj",
+            file_okay=True,
+            dir_okay=False,
+            resolve_path=True,
+            help=f"Path to mmproj GGUF file (default: {_DEFAULT_MMPROJ_PATH}).",
+        ),
+    ] = Path(_DEFAULT_MMPROJ_PATH),
 ) -> None:
     """Ingest a film and produce analysis-ready artifacts for trailer generation."""
     # --- Input validation (PIPE-01) ---
@@ -212,14 +240,47 @@ def main(
                 )
             console.print(f"[green]Extracted {len(keyframe_records)} keyframes\n")
 
+            # --- Stage 4: LLaVA Inference (INFR-02) ---
+            console.print("[bold]Stage 4/4:[/bold] Running LLaVA inference on keyframes...")
+            inference_results = []
+
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TextColumn("{task.completed}/{task.total}"),
+                TimeElapsedColumn(),
+                console=console,
+            ) as progress:
+                infer_task = progress.add_task(
+                    "Describing frames...", total=len(keyframe_records)
+                )
+
+                def _progress_callback(current: int, total: int) -> None:
+                    progress.update(infer_task, completed=current)
+
+                inference_results = run_inference_stage(
+                    keyframe_records,
+                    model,
+                    mmproj,
+                    progress_callback=_progress_callback,
+                )
+
+            skipped = sum(1 for _, desc in inference_results if desc is None)
+            console.print(
+                f"[green]Inference complete:[/] {len(inference_results)} frames processed, "
+                f"{skipped} skipped\n"
+            )
+
             # --- Summary ---
             console.print(Panel(
-                f"[bold green]Ingestion complete[/bold green]\n\n"
+                f"[bold green]Ingestion + Inference complete[/bold green]\n\n"
                 f"  Proxy:      [dim]{proxy_path.name}[/dim]\n"
                 f"  Subtitles:  {len(dialogue_events)} events\n"
                 f"  Keyframes:  {len(keyframe_records)} frames\n"
+                f"  Described:  {len(inference_results) - skipped} frames ({skipped} skipped)\n"
                 f"  Work dir:   [dim]{work_dir}[/dim]",
-                title="[green]Phase 1 Complete[/green]",
+                title="[green]Phase 3 Complete[/green]",
                 border_style="green",
             ))
 
