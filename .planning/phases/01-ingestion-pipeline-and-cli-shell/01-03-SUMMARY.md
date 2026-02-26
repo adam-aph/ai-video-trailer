@@ -114,6 +114,17 @@ None - no external service configuration required.
 - All 33 unit tests passing (test_proxy, test_subtitles, test_keyframes)
 - Phase 3 dependency on Phase 1 confirmed satisfied; Phase 2 (conform pipeline) can proceed in parallel
 
+## Self-Check: PASSED
+
+- FOUND: src/cinecut/ingestion/keyframes.py
+- FOUND: src/cinecut/cli.py
+- FOUND: tests/test_keyframes.py
+- FOUND: .planning/phases/01-ingestion-pipeline-and-cli-shell/01-03-SUMMARY.md
+- FOUND commit: 037c82b (Task 1 - hybrid keyframe extractor)
+- FOUND commit: 2d07be9 (Task 2 - Typer CLI shell)
+- FOUND commit: 90a8a7e (docs - plan metadata)
+- All 33 tests passing
+
 ---
 *Phase: 01-ingestion-pipeline-and-cli-shell*
 *Completed: 2026-02-26*
