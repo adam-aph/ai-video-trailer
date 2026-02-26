@@ -111,6 +111,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 |-------|----------------|--------|-----------|
 | 1. Ingestion Pipeline and CLI Shell | 5/5 | Complete   | 2026-02-26 |
 | 2. Manifest Contract, Vibes, and Conform | 3/3 | Complete   | 2026-02-26 |
-| 3. LLaVA Inference Engine | 0/3 | Not started | - |
+| 3. LLaVA Inference Engine | 1/3 | In Progress|  |
 | 4. Narrative Beat Extraction and Manifest Generation | 0/2 | Not started | - |
 | 5. Trailer Assembly and End-to-End Pipeline | 0/2 | Not started | - |

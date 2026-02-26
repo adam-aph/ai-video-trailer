@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: unknown
-last_updated: "2026-02-26T19:31:50.532Z"
+last_updated: "2026-02-26T19:55:17Z"
 progress:
-  total_phases: 2
+  total_phases: 5
   completed_phases: 2
-  total_plans: 8
-  completed_plans: 8
+  total_plans: 9
+  completed_plans: 9
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** Given a feature film and its subtitle file, produce a narratively coherent, vibe-styled trailer that a human editor would be proud to show.
-**Current focus:** Phase 2 complete -- beginning Phase 3: Inference Engine (LLaVA scene captioning)
+**Current focus:** Phase 3 in progress -- 03-01 complete (awaiting human-verify checkpoint), ready for 03-02
 
 ## Current Position
 
-Phase: 2 of 5 (Manifest Contract, Vibes, and Conform) -- COMPLETE
-Plan: 3 of 5 in current phase -- COMPLETE (human-verify approved)
+Phase: 3 of 5 (LLaVA Inference Engine) -- IN PROGRESS
+Plan: 1 of N in current phase -- CHECKPOINT (awaiting human-verify: error classes, test scaffold, model download)
 Status: Active
-Last activity: 2026-02-26 -- Completed 02-03 Task 2: human verified Phase 2 end-to-end pipeline (approved)
+Last activity: 2026-02-26 -- Completed 03-01 Tasks 1-2, awaiting human verify checkpoint
 
-Progress: [##########] 100% (Phase 1) | [######    ] 60% (Phase 2)
+Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [##        ] 20% (Phase 3)
 
 ## Performance Metrics
 
@@ -50,6 +50,7 @@ Progress: [##########] 100% (Phase 1) | [######    ] 60% (Phase 2)
 | Phase 02-manifest-contract-vibes-and-conform P02 | 2 | 2 tasks | 2 files |
 | Phase 02-manifest-contract-vibes-and-conform P03 | 5 | 1 tasks | 3 files |
 | Phase 02-manifest-contract-vibes-and-conform P03 | 10 | 2 tasks | 3 files |
+| Phase 03-llava-inference-engine P01 | 2 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,9 @@ Recent decisions affecting current work:
 - [Phase 02-02]: make_output_path() replaces hyphens with underscores in vibe slug for filename safety (sci-fi -> sci_fi)
 - [Phase 02-02]: Vibe validation in CLI uses VIBE_PROFILES dict keys as single source of runtime truth
 - [Phase 02-03]: Human verify approved: automated tests pass, 18 vibe profiles importable, LUT generates 35937 lines, CLI shows --manifest and --review flags
+- [03-01]: InferenceError and VramError take only detail: str (no Path) -- inference errors are not file-path-specific
+- [03-01]: pytest.importorskip used for cinecut.inference.* imports so scaffold is collectible before plan-02 exists
+- [03-01]: integration mark uses _models_exist flag checking both GGUF and mmproj file presence
 
 ### Pending Todos
 
@@ -98,5 +102,5 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 02-03-PLAN.md -- Phase 2 fully complete, human-verify approved
+Stopped at: Completed 03-01-PLAN.md Tasks 1-2 -- checkpoint:human-verify awaiting user approval
 Resume file: None

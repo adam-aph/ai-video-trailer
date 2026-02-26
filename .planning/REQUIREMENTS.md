@@ -13,13 +13,13 @@ Requirements for initial release. Each maps to a roadmap phase.
 - [x] **PIPE-02**: System creates a 420p analysis proxy from the source video using FFmpeg before inference
 - [x] **PIPE-03**: System extracts keyframes using a hybrid strategy: subtitle event midpoints (primary), FFmpeg scene-change detection (supplementary), interval fallback for subtitle gaps > 30s
 - [ ] **PIPE-04**: Pipeline persists stage-based checkpoint state files so a run can resume after failure without restarting from scratch
-- [ ] **PIPE-05**: All GPU operations run strictly sequentially — llama-server inference and FFmpeg GPU operations never run concurrently
+- [x] **PIPE-05**: All GPU operations run strictly sequentially — llama-server inference and FFmpeg GPU operations never run concurrently
 
 ### Inference
 
-- [ ] **INFR-01**: System integrates with llama-server HTTP mode for persistent LLaVA inference (avoiding model reload per frame)
-- [ ] **INFR-02**: System submits extracted keyframes to LLaVA and stores structured scene descriptions for each frame
-- [ ] **INFR-03**: Inference pipeline stays within 12GB VRAM budget (one frame analyzed at a time, with memory verified before each call)
+- [x] **INFR-01**: System integrates with llama-server HTTP mode for persistent LLaVA inference (avoiding model reload per frame)
+- [x] **INFR-02**: System submits extracted keyframes to LLaVA and stores structured scene descriptions for each frame
+- [x] **INFR-03**: Inference pipeline stays within 12GB VRAM budget (one frame analyzed at a time, with memory verified before each call)
 
 ### Narrative Analysis
 
@@ -94,10 +94,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PIPE-02 | Phase 1 | Complete |
 | PIPE-03 | Phase 1 | Complete |
 | PIPE-04 | Phase 5 | Pending |
-| PIPE-05 | Phase 3 | Pending |
-| INFR-01 | Phase 3 | Pending |
-| INFR-02 | Phase 3 | Pending |
-| INFR-03 | Phase 3 | Pending |
+| PIPE-05 | Phase 3 | Complete |
+| INFR-01 | Phase 3 | Complete |
+| INFR-02 | Phase 3 | Complete |
+| INFR-03 | Phase 3 | Complete |
 | NARR-01 | Phase 1 | Complete |
 | NARR-02 | Phase 4 | Pending |
 | NARR-03 | Phase 4 | Pending |
