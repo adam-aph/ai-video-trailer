@@ -73,3 +73,25 @@ class ConformError(CineCutError):
         )
         self.output_path = output_path
         self.detail = detail
+
+
+class InferenceError(CineCutError):
+    def __init__(self, detail: str) -> None:
+        super().__init__(
+            f"LLaVA inference engine error.\n"
+            f"  Cause: {detail}\n"
+            f"  Check: Is llama-server installed at /usr/local/bin/llama-server? Is the LLaVA model at /home/adamh/models/ggml-model-q4_k.gguf?\n"
+            f"  Tip: Run `llama-server --version` to verify the binary is accessible."
+        )
+        self.detail = detail
+
+
+class VramError(CineCutError):
+    def __init__(self, detail: str) -> None:
+        super().__init__(
+            f"Insufficient VRAM for LLaVA inference.\n"
+            f"  Cause: {detail}\n"
+            f"  Check: Is another GPU process running? Run `nvidia-smi` to see current VRAM usage.\n"
+            f"  Tip: Close other GPU applications and retry."
+        )
+        self.detail = detail
