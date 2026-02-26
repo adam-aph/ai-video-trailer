@@ -48,7 +48,7 @@ patterns-established:
   - "run_inference_stage returns (record, desc_or_none) tuples: Phase 4 can filter None entries to find skipped frames"
   - "CLI inference stage only runs when --manifest is NOT provided (full pipeline path)"
 
-requirements-completed: [INFR-02]
+requirements-completed: [INFR-02, INFR-03, PIPE-05]
 
 # Metrics
 duration: 5min
@@ -64,7 +64,7 @@ completed: "2026-02-26"
 - **Duration:** 5 min
 - **Started:** 2026-02-26T20:22:43Z
 - **Completed:** 2026-02-26T20:27:45Z
-- **Tasks:** 2 of 2 (checkpoint pending human verification)
+- **Tasks:** 3 of 3 (checkpoint approved by human)
 - **Files modified:** 3
 
 ## Accomplishments
@@ -75,7 +75,9 @@ completed: "2026-02-26"
 - `test_malformed_response_skipped`: PASSES -- mocked response returns non-JSON, asserts describe_frame returns None
 - `test_no_model_reload` upgraded from `pytest.skip` to real integration test body (PID stability check)
 - CLI: `--model` and `--mmproj` options added with defaults; Stage 4/4 inference wired with Rich progress bar and summary panel
-- 69 non-integration tests pass, 0 regressions; 2 integration tests fail due to documented mmproj format blocker
+- 71/71 tests pass (0 failures, 0 skips): unit tests, integration tests (`test_server_health` PASS at 8.27s real startup, `test_no_model_reload` PASS confirming PID stability)
+- mmproj compatibility blocker RESOLVED: binary-patched `mmproj-model-f16.gguf` with 42-byte `clip.projector_type = "mlp"` metadata entry (backup at `.bak`)
+- Free VRAM confirmed at 12,203 MiB on Quadro K6000
 
 ## Task Commits
 
@@ -100,22 +102,20 @@ Each task was committed atomically:
 
 ## Deviations from Plan
 
-None - plan executed exactly as written.
+### Auto-fixed Issues
 
-## Integration Test Blocker (Known Issue)
+**1. [Rule 1 - Bug] Resolved mmproj "unknown projector type" blocking integration tests**
+- **Found during:** Checkpoint verification (Task 3)
+- **Issue:** `test_server_health` failed because llama.cpp build 8156 (3769fe6eb) requires a `clip.projector_type` metadata key in the mmproj GGUF file; the downloaded `mmproj-model-f16.gguf` from `mys/ggml_llava-v1.5-7b` predates this spec and lacks the key, causing fatal error: `clip_init: failed to load model: load_hparams: unknown projector type:`
+- **Fix:** Binary patch injecting 42-byte GGUF metadata entry `clip.projector_type = "mlp"` into `mmproj-model-f16.gguf`; original preserved at `mmproj-model-f16.gguf.bak`
+- **Files modified:** `/home/adamh/models/mmproj-model-f16.gguf` (model file binary patch, not tracked in git)
+- **Verification:** `test_server_health` PASS (8.27s real server startup), `test_no_model_reload` PASS, full suite 71/71 green
+- **Committed in:** Model file patch only -- no source code changes required
 
-`test_server_health` and `test_no_model_reload` both FAIL when model files are present because the downloaded `mmproj-model-f16.gguf` (from `mys/ggml_llava-v1.5-7b` on HuggingFace) lacks the `clip.projector_type` metadata key required by llama.cpp build 8156.
+---
 
-**Error message:** `clip_init: failed to load model '...mmproj-model-f16.gguf': load_hparams: unknown projector type:`
-
-**Root cause:** The older GGUF V2 format from this model repo predates the `clip.projector_type` spec addition. llama.cpp 8156 requires this key to be `"mlp"` for LLaVA 1.5 models.
-
-**Fix options:**
-1. Download a newer mmproj from a repo that sets `clip.projector_type = "mlp"` (e.g., `bartowski/llava-v1.5-7b-GGUF`)
-2. Patch the GGUF file to add the missing metadata key using a Python GGUF editor
-3. Build an older llama.cpp version (pre-projector-type requirement)
-
-This is a model file compatibility issue, not a code bug. All unit tests (describe_frame, vram_check, gpu_lock) pass correctly with mocked infrastructure.
+**Total deviations:** 1 auto-fixed (Rule 1 - model file compatibility bug)
+**Impact on plan:** The mmproj patch was necessary to complete integration test verification. All source code executed exactly as written in the plan.
 
 ## Self-Check: PASSED
 
@@ -128,11 +128,17 @@ Commits verified:
 - `b2dfa5f` -- FOUND (Task 1)
 - `7c72412` -- FOUND (Task 2)
 
+## Issues Encountered
+
+- **mmproj compatibility blocker (pre-existing from plan 02):** `test_server_health` was flagged in STATE.md from plan 02. Resolved at checkpoint verification by binary-patching `mmproj-model-f16.gguf` to add the `clip.projector_type = "mlp"` metadata key missing in the mys/ggml_llava-v1.5-7b release.
+
 ## Next Phase Readiness
 
+**Phase 4 (Narrative Beat Extraction and Manifest Generation) is unblocked:**
 - `run_inference_stage` returns `(KeyframeRecord, SceneDescription | None)` tuples ready for Phase 4 manifest generation
-- Integration tests blocked by mmproj compatibility; fix requires new model file or GGUF patch
-- All INFR-02 requirements delivered; INFR-01/INFR-03/PIPE-05 delivered in plan 02
+- All integration tests verified on real hardware (Quadro K6000, 12,203 MiB free VRAM)
+- All 4 Phase 3 requirements fully verified: INFR-01 (server lifecycle), INFR-02 (describe_frame structured output), INFR-03 (VRAM check + sequential processing), PIPE-05 (GPU_LOCK held)
+- 71/71 tests green, zero regressions
 
 ---
 *Phase: 03-llava-inference-engine*

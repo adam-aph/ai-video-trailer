@@ -18,14 +18,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** Given a feature film and its subtitle file, produce a narratively coherent, vibe-styled trailer that a human editor would be proud to show.
-**Current focus:** Phase 3 complete -- 03-03 done, checkpoint pending human verify (mmproj blocker)
+**Current focus:** Phase 3 fully complete -- all 3 plans done, checkpoint approved, 71/71 tests passing
 
 ## Current Position
 
-Phase: 3 of 5 (LLaVA Inference Engine) -- COMPLETE (checkpoint pending)
+Phase: 3 of 5 (LLaVA Inference Engine) -- COMPLETE
 Plan: 3 of 3 in current phase -- COMPLETE
 Status: Active
-Last activity: 2026-02-26 -- Completed 03-03 (describe_frame + CLI inference wiring + INFR-02 tests)
+Last activity: 2026-02-26 -- Completed 03-03: checkpoint approved, mmproj patched, 71/71 tests passing
 
 Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [##########] 100% (Phase 3)
 
@@ -97,6 +97,7 @@ Recent decisions affecting current work:
 - [Phase 03-03]: describe_frame accepts KeyframeRecord (not raw Path) -- consistent with pipeline data model
 - [Phase 03-03]: LlavaEngine.__new__() bypass pattern for unit tests -- avoids server startup, VRAM check, and GPU_LOCK in mocked describe_frame tests
 - [Phase 03-03]: CLI Stage 4 inference runs only when --manifest flag absent (full pipeline); conform path unchanged
+- [Phase 03-03]: mmproj binary patch (42 bytes, clip.projector_type = "mlp") preferred over re-downloading model file -- existing weights are correct, only the projector_type metadata key was missing from llama.cpp 8156 spec; backup preserved at mmproj-model-f16.gguf.bak
 
 ### Pending Todos
 
@@ -107,10 +108,10 @@ None yet.
 - [Research]: CUDA 11.4 / Kepler sm_35 compatibility must be validated before Phase 3 begins -- llama-server LLaVA inference on K6000 is untested
 - [Research]: LUT sourcing strategy (programmatic .cube generation vs. curated free LUTs) needs investigation during Phase 2 planning
 - [Research]: llama-server availability in the system llama.cpp build is unknown -- Phase 3 first-day investigation item
-- [03-02]: mmproj-model-f16.gguf (mys/ggml_llava-v1.5-7b) uses "unknown projector type" in current llama.cpp build (8156 / 3769fe6eb) -- test_server_health fails; plan-03 will need compatible model files or newer mmproj format
+- [03-02]: mmproj-model-f16.gguf (mys/ggml_llava-v1.5-7b) uses "unknown projector type" in current llama.cpp build (8156 / 3769fe6eb) -- RESOLVED in 03-03: binary patch injecting clip.projector_type = "mlp" (42 bytes); test_server_health now PASS (8.27s startup), test_no_model_reload PASS, 71/71 green
 
 ## Session Continuity
 
 Last session: 2026-02-26
-Stopped at: Completed 03-03-PLAN.md -- 2 tasks done, checkpoint pending human verify
+Stopped at: Completed 03-03-PLAN.md -- all 3 tasks done, checkpoint approved, mmproj patched, Phase 3 fully complete
 Resume file: None
