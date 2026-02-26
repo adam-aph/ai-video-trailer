@@ -30,12 +30,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. System extracts keyframes using the hybrid strategy (subtitle midpoints, scene-change detection, interval fallback for gaps > 30s) and writes them to a work directory
   4. System parses both SRT and ASS subtitle files and produces structured dialogue events with timestamps and emotional keyword classification
   5. When FFmpeg or file operations fail, the CLI displays actionable human-readable error messages (not raw subprocess stderr)
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
-- [ ] 01-03: TBD
+- [ ] 01-01-PLAN.md — Package scaffold, shared data models (DialogueEvent, KeyframeRecord), and error translation layer
+- [ ] 01-02-PLAN.md — Subtitle parser (SRT/ASS + emotion classification) and FFmpeg proxy creation with validation
+- [ ] 01-03-PLAN.md — Hybrid keyframe extractor and Typer CLI shell wiring all ingestion stages with Rich progress
 
 ### Phase 2: Manifest Contract, Vibes, and Conform
 **Goal**: Given a valid TRAILER_MANIFEST.json (hand-crafted or generated), the system can render a final trailer with vibe-specific color grading, audio normalization, and frame-accurate segment extraction
