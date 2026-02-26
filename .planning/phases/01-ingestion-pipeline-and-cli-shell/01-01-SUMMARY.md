@@ -83,7 +83,7 @@ Each task was committed atomically:
 1. **Task 1: Create pyproject.toml and package skeleton** - `086d9e2` (chore)
 2. **Task 2: Create models.py and errors.py** - `ce40ba2` (feat)
 
-**Plan metadata:** [to be added after final commit]
+**Plan metadata:** `c89bf68` (docs: complete plan)
 
 ## Files Created/Modified
 - `pyproject.toml` - Package metadata, hatchling build backend, dependencies, cinecut entry point
