@@ -30,12 +30,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. System extracts keyframes using the hybrid strategy (subtitle midpoints, scene-change detection, interval fallback for gaps > 30s) and writes them to a work directory
   4. System parses both SRT and ASS subtitle files and produces structured dialogue events with timestamps and emotional keyword classification
   5. When FFmpeg or file operations fail, the CLI displays actionable human-readable error messages (not raw subprocess stderr)
-**Plans**: 3 plans
+**Plans**: 5 plans
 
 Plans:
 - [ ] 01-01-PLAN.md — Package scaffold, shared data models (DialogueEvent, KeyframeRecord), and error translation layer
 - [ ] 01-02-PLAN.md — Subtitle parser (SRT/ASS + emotion classification) and FFmpeg proxy creation with validation
 - [ ] 01-03-PLAN.md — Hybrid keyframe extractor and Typer CLI shell wiring all ingestion stages with Rich progress
+- [ ] 01-04-PLAN.md — [GAP] Fix PATH environment so cinecut is reachable in non-interactive shells
+- [ ] 01-05-PLAN.md — [GAP] Fix CLI validation order: extension check before existence check with consistent Rich error panels
 
 ### Phase 2: Manifest Contract, Vibes, and Conform
 **Goal**: Given a valid TRAILER_MANIFEST.json (hand-crafted or generated), the system can render a final trailer with vibe-specific color grading, audio normalization, and frame-accurate segment extraction
@@ -106,7 +108,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Ingestion Pipeline and CLI Shell | 1/3 | In Progress|  |
+| 1. Ingestion Pipeline and CLI Shell | 3/5 | Gap closure in progress |  |
 | 2. Manifest Contract, Vibes, and Conform | 0/3 | Not started | - |
 | 3. LLaVA Inference Engine | 0/2 | Not started | - |
 | 4. Narrative Beat Extraction and Manifest Generation | 0/2 | Not started | - |
