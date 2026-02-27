@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: unknown
-last_updated: "2026-02-26T23:35:35.435Z"
+status: complete
+last_updated: "2026-02-27T00:08:25Z"
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 17
-  completed_plans: 16
+  completed_plans: 17
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-26)
 
 **Core value:** Given a feature film and its subtitle file, produce a narratively coherent, vibe-styled trailer that a human editor would be proud to show.
-**Current focus:** Phase 4 COMPLETE -- 04-01 (signals + scorer) and 04-02 (generator + CLI Stage 5 + tests) both done; Phase 5 (final render conform) is next
+**Current focus:** ALL PHASES COMPLETE -- v1.0 milestone reached. 7-stage cinecut pipeline fully implemented and human-verified.
 
 ## Current Position
 
-Phase: 5 of 5 (Trailer Assembly and End-to-End Pipeline) -- IN PROGRESS
-Plan: 3 of 4 in current phase -- COMPLETE
-Status: Active
-Last activity: 2026-02-26 -- Completed 05-03: checkpoint guards + Stage 6 assembly in cli.py, conform_manifest extra_clip_paths, 23 new tests
+Phase: 5 of 5 (Trailer Assembly and End-to-End Pipeline) -- COMPLETE
+Plan: 4 of 4 in current phase -- COMPLETE
+Status: Complete
+Last activity: 2026-02-27 -- Completed 05-04: human-verified acceptance gate, 119 tests passing, Phase 5 and v1.0 milestone complete
 
-Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [##########] 100% (Phase 3) | [##########] 100% (Phase 4) | [#######   ] 75% (Phase 5)
+Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [##########] 100% (Phase 3) | [##########] 100% (Phase 4) | [##########] 100% (Phase 5)
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [#########
 | Phase 05-trailer-assembly-and-end-to-end-pipeline P01 | 1 | 1 tasks | 1 files |
 | Phase 05-trailer-assembly-and-end-to-end-pipeline P02 | 2 | 2 tasks | 3 files |
 | Phase 05-trailer-assembly-and-end-to-end-pipeline P03 | 5 | 2 tasks | 4 files |
+| Phase 05-trailer-assembly-and-end-to-end-pipeline P04 | 2 | 2 tasks | 0 files |
 
 ## Accumulated Context
 
@@ -117,6 +118,7 @@ Recent decisions affecting current work:
 - [Phase 05-02]: title_card and button are pre-encoded MP4 files via FFmpeg lavfi, NOT ClipEntry objects — avoids extracting first 5s of film as fake segments
 - [Phase 05-02]: enforce_pacing_curve threshold is act3_avg_cut_s * 1.5 — only trims when clearly over target; MIN_CLIP_DURATION_S = 0.5s floor prevents sub-playable clips
 - [Phase 05-trailer-assembly-and-end-to-end-pipeline]: Stage 4 inference re-runs on resume (SceneDescription persistence deferred to v2); Stage 3 keyframes re-run (idempotent); extra_clip_paths uses list[Path]|None=None; --manifest path also runs assembly
+- [Phase 05-04]: Human approval received as "approved" — unit test coverage (119 tests, 0 failures) accepted as sufficient sign-off for EDIT-02, EDIT-03, PIPE-04; v1.0 milestone complete
 
 ### Pending Todos
 
@@ -131,6 +133,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-02-26
-Stopped at: 05-04 Task 1 complete (commit 500b70d) — automated pre-verify passed (119 tests); at checkpoint:human-verify Task 2
+Last session: 2026-02-27
+Stopped at: 05-04 COMPLETE (all 17 plans done) — v1.0 milestone reached
 Resume file: None
