@@ -32,6 +32,14 @@ _VIBE_ALIASES: dict[str, str] = {
 }
 
 
+class StructuralAnchors(BaseModel):
+    """Narrative anchor timestamps extracted from subtitle corpus (Phase 7)."""
+    begin_t: float = Field(ge=0.0, description="BEGIN narrative anchor timestamp (seconds)")
+    escalation_t: float = Field(ge=0.0, description="ESCALATION narrative anchor timestamp (seconds)")
+    climax_t: float = Field(ge=0.0, description="CLIMAX narrative anchor timestamp (seconds)")
+    source: str = "llm"  # "llm" | "heuristic"
+
+
 class ClipEntry(BaseModel):
     source_start_s: float = Field(ge=0.0)
     source_end_s: float = Field(ge=0.0)
@@ -73,10 +81,11 @@ class ClipEntry(BaseModel):
 
 
 class TrailerManifest(BaseModel):
-    schema_version: str = "1.0"
+    schema_version: str = "2.0"   # bumped; keep as str (not Literal) for backward compat
     source_file: str
     vibe: str
     clips: list[ClipEntry] = Field(min_length=1)
+    structural_anchors: Optional[StructuralAnchors] = None  # Phase 7 — absent in v1.0 manifests
 
     @field_validator("vibe", mode="before")
     @classmethod

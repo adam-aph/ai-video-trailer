@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Callable, Optional
 
-from cinecut.manifest.schema import ClipEntry, TrailerManifest
+from cinecut.manifest.schema import ClipEntry, TrailerManifest, StructuralAnchors
 from cinecut.manifest.vibes import VIBE_PROFILES, VibeProfile
 from cinecut.models import DialogueEvent, KeyframeRecord
 from cinecut.narrative.signals import RawSignals, extract_all_signals, get_film_duration_s
@@ -175,6 +175,7 @@ def run_narrative_stage(
     source_file: Path,             # original MKV/AVI/MP4 (NOT the proxy)
     work_dir: Path,                # directory to write TRAILER_MANIFEST.json
     progress_callback: Callable[[int, int], None] | None = None,
+    structural_anchors: Optional[StructuralAnchors] = None,   # Phase 7 structural anchors
 ) -> Path:                         # path to written TRAILER_MANIFEST.json
     """Full manifest assembly pipeline.
 
@@ -293,6 +294,7 @@ def run_narrative_stage(
         source_file=str(source_file),
         vibe=vibe,
         clips=clip_entries,
+        structural_anchors=structural_anchors,   # None is fine; field is Optional
     )
     output_path = work_dir / "TRAILER_MANIFEST.json"
     output_path.write_text(

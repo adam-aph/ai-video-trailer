@@ -25,6 +25,8 @@ class PipelineCheckpoint:
     cache_hit: Optional[bool] = None
     manifest_path: Optional[str] = None
     assembly_manifest_path: Optional[str] = None
+    proxy_duration_s: Optional[float] = None     # Video duration (seconds) for heuristic fallback
+    structural_anchors: Optional[dict] = None    # StructuralAnchors.model_dump() result
 
     def is_stage_complete(self, stage: str) -> bool:
         """Return True if the given stage name is in stages_complete."""

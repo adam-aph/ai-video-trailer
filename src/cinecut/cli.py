@@ -28,7 +28,10 @@ from cinecut.ingestion.subtitles import parse_subtitles
 from cinecut.ingestion.keyframes import collect_keyframe_timestamps, extract_all_keyframes
 from cinecut.inference.engine import run_inference_stage
 from cinecut.inference.cache import load_cache, save_cache
-from cinecut.inference.text_engine import get_models_dir, MISTRAL_GGUF_NAME
+from cinecut.inference.text_engine import TextEngine, get_models_dir, MISTRAL_GGUF_NAME
+from cinecut.inference.structural import run_structural_analysis, compute_heuristic_anchors
+from cinecut.manifest.schema import StructuralAnchors
+from cinecut.narrative.signals import get_film_duration_s
 from cinecut.manifest.loader import load_manifest
 from cinecut.manifest.vibes import VIBE_PROFILES
 from cinecut.narrative.generator import run_narrative_stage
@@ -36,8 +39,8 @@ from cinecut.conform.pipeline import conform_manifest
 from cinecut.checkpoint import PipelineCheckpoint, load_checkpoint, save_checkpoint
 from cinecut.assembly import assemble_manifest
 
-# Total pipeline stages (proxy, subtitles, keyframes, inference, narrative, assembly, conform)
-TOTAL_STAGES = 7
+# Total pipeline stages (proxy, subtitles, keyframes, inference, structural, narrative, assembly, conform)
+TOTAL_STAGES = 8
 
 app = typer.Typer(
     name="cinecut",
@@ -219,7 +222,7 @@ def main(
             # Assembly for --manifest path (no checkpoint)
             reordered_manifest, extra_paths = assemble_manifest(trailer_manifest, video, work_dir)
         else:
-            # --- Stage 1/7: Proxy creation (PIPE-02) ---
+            # --- Stage 1/8: Proxy creation (PIPE-02) ---
             if not ckpt.is_stage_complete("proxy"):
                 console.print(f"[bold]Stage 1/{TOTAL_STAGES}:[/bold] Creating 420p analysis proxy...")
                 # better-ffmpeg-progress handles its own Rich progress bar during the FFmpeg call.
@@ -232,7 +235,16 @@ def main(
                 proxy_path = Path(ckpt.proxy_path)
                 console.print(f"[yellow]Resuming:[/] Stage 1 already complete (proxy: {proxy_path.name})\n")
 
-            # --- Stage 2/7: Subtitle parsing (NARR-01) ---
+            # Capture proxy duration for heuristic fallback (Stage 5)
+            if ckpt.proxy_duration_s is None:
+                try:
+                    ckpt.proxy_duration_s = get_film_duration_s(proxy_path)
+                    save_checkpoint(ckpt, work_dir)
+                except Exception:
+                    ckpt.proxy_duration_s = 0.0  # safe default; heuristic will use subtitle span instead
+            proxy_duration_s = ckpt.proxy_duration_s
+
+            # --- Stage 2/8: Subtitle parsing (NARR-01) ---
             if not ckpt.is_stage_complete("subtitles"):
                 console.print(f"[bold]Stage 2/{TOTAL_STAGES}:[/bold] Parsing subtitles...")
                 with Progress(
@@ -253,7 +265,7 @@ def main(
                 console.print(f"[yellow]Resuming:[/] Stage 2 already complete — re-parsing subtitles for downstream use\n")
                 dialogue_events = parse_subtitles(subtitle)
 
-            # --- Stage 3/7: Keyframe extraction (PIPE-03) ---
+            # --- Stage 3/8: Keyframe extraction (PIPE-03) ---
             if not ckpt.is_stage_complete("keyframes"):
                 console.print(f"[bold]Stage 3/{TOTAL_STAGES}:[/bold] Extracting keyframes...")
                 subtitle_midpoints = [e.midpoint_s for e in dialogue_events]
@@ -307,7 +319,7 @@ def main(
                         progress_callback=lambda: progress.advance(kf_task),
                     )
 
-            # --- Stage 4/7: LLaVA Inference (INFR-01, IINF-01, IINF-02) ---
+            # --- Stage 4/8: LLaVA Inference (INFR-01, IINF-01, IINF-02) ---
             console.print(f"[bold]Stage 4/{TOTAL_STAGES}:[/bold] LLaVA inference...")
             cached_results = load_cache(video, work_dir)
 
@@ -360,9 +372,36 @@ def main(
             ckpt.inference_complete = True
             save_checkpoint(ckpt, work_dir)
 
-            # --- Stage 5/7: Narrative beat extraction and manifest generation (NARR-02, NARR-03, EDIT-01) ---
+            # --- Stage 5/8: Structural Analysis (IINF-03, IINF-04, STRC-01, STRC-03) ---
+            if not ckpt.is_stage_complete("structural"):
+                console.print(f"[bold]Stage 5/{TOTAL_STAGES}:[/bold] Structural analysis...")
+                models_dir = get_models_dir()
+                mistral_path = models_dir / MISTRAL_GGUF_NAME
+                if not mistral_path.exists():
+                    console.print(
+                        f"[yellow]Heuristic fallback:[/] Mistral GGUF not found at "
+                        f"[dim]{mistral_path}[/dim] — using 5%/45%/80% zone anchors\n"
+                    )
+                    structural_anchors = compute_heuristic_anchors(proxy_duration_s)
+                else:
+                    with TextEngine(mistral_path) as text_engine:
+                        structural_anchors = run_structural_analysis(dialogue_events, text_engine)
+                ckpt.structural_anchors = structural_anchors.model_dump()
+                ckpt.mark_stage_complete("structural")
+                save_checkpoint(ckpt, work_dir)
+                console.print(
+                    f"[green]Structural anchors:[/] BEGIN={structural_anchors.begin_t:.1f}s "
+                    f"ESCALATION={structural_anchors.escalation_t:.1f}s "
+                    f"CLIMAX={structural_anchors.climax_t:.1f}s "
+                    f"([dim]source={structural_anchors.source}[/dim])\n"
+                )
+            else:
+                structural_anchors = StructuralAnchors(**ckpt.structural_anchors)
+                console.print(f"[yellow]Resuming:[/] Stage 5 already complete\n")
+
+            # --- Stage 6/8: Narrative beat extraction and manifest generation (NARR-02, NARR-03, EDIT-01) ---
             if not ckpt.is_stage_complete("narrative"):
-                console.print(f"[bold]Stage 5/{TOTAL_STAGES}:[/bold] Extracting narrative beats and generating manifest...")
+                console.print(f"[bold]Stage 6/{TOTAL_STAGES}:[/bold] Extracting narrative beats and generating manifest...")
 
                 with Progress(
                     SpinnerColumn(),
@@ -386,6 +425,7 @@ def main(
                         video,      # original source, NOT proxy
                         work_dir,
                         progress_callback=_narr_callback,
+                        structural_anchors=structural_anchors,   # in scope from Stage 5
                     )
 
                 ckpt.manifest_path = str(manifest_path)
@@ -394,13 +434,13 @@ def main(
                 console.print(f"[green]Manifest written: [dim]{manifest_path.name}[/dim]\n")
             else:
                 manifest_path = Path(ckpt.manifest_path)
-                console.print(f"[yellow]Resuming:[/] Stage 5 already complete (manifest: {manifest_path.name})\n")
+                console.print(f"[yellow]Resuming:[/] Stage 6 already complete (manifest: {manifest_path.name})\n")
 
             trailer_manifest = load_manifest(manifest_path)
 
-            # --- Stage 6/7: 3-act assembly and pacing enforcement (EDIT-02, EDIT-03) ---
+            # --- Stage 7/8: 3-act assembly and pacing enforcement (EDIT-02, EDIT-03) ---
             if not ckpt.is_stage_complete("assembly"):
-                console.print(f"[bold]Stage 6/{TOTAL_STAGES}:[/bold] Assembling 3-act structure...")
+                console.print(f"[bold]Stage 7/{TOTAL_STAGES}:[/bold] Assembling 3-act structure...")
                 with Progress(
                     SpinnerColumn(),
                     TextColumn("[progress.description]{task.description}"),
@@ -419,7 +459,7 @@ def main(
                 from cinecut.manifest.loader import load_manifest as _lm
                 reordered_manifest = _lm(Path(ckpt.assembly_manifest_path))
                 _, extra_paths = assemble_manifest(trailer_manifest, video, work_dir)
-                console.print(f"[yellow]Resuming:[/] Stage 6 already complete\n")
+                console.print(f"[yellow]Resuming:[/] Stage 7 already complete\n")
 
             # --- Summary ---
             console.print(Panel(
@@ -431,11 +471,11 @@ def main(
                 f"  Manifest:   [dim]{manifest_path.name}[/dim]\n"
                 f"  Assembly:   {len(reordered_manifest.clips)} clips ordered\n"
                 f"  Work dir:   [dim]{work_dir}[/dim]",
-                title="[green]Phase 5 Complete[/green]",
+                title="[green]Phase 7 Complete[/green]",
                 border_style="green",
             ))
 
-        # --- Stage 7/7: FFmpeg conform (EDIT-05 / CLI-04) ---
+        # --- Stage 8/8: FFmpeg conform (EDIT-05 / CLI-04) ---
         if trailer_manifest is not None:
             # --review pause (EDIT-04): inspect manifest before conform
             if review:
@@ -443,7 +483,7 @@ def main(
                 console.print("[dim]Inspect clip decisions in the manifest, then confirm to continue.[/dim]\n")
                 typer.confirm("Proceed with FFmpeg conform?", abort=True)
 
-            console.print(f"[bold]Stage 7/{TOTAL_STAGES}:[/bold] Running FFmpeg conform...")
+            console.print(f"[bold]Stage 8/{TOTAL_STAGES}:[/bold] Running FFmpeg conform...")
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
