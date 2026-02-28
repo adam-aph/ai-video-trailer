@@ -6,7 +6,8 @@
 ![Tests](https://img.shields.io/badge/tests-207%20passing-brightgreen)
 ![License](https://img.shields.io/badge/License-Apache_2.0-lightgrey)
 
-CineCut AI transforms any long-form film into a polished, genre-aware trailer using a fully local AI stack — no cloud APIs, no manual editing. Feed it a video and a subtitle file; it returns a cinematic MP4 trailer with color grading, a licensed music bed, sound effects, and voice-over — all cut to beat.
+CineCut AI transforms any long-form film into a polished, genre-aware trailer using a fully local AI stack.
+<br>Feed it a video and a subtitle file; it returns a cinematic MP4 trailer with color grading, a licensed music bed, sound effects, and voice-over.
 
 ---
 
@@ -40,13 +41,13 @@ Input Film (.mkv/.mp4) + Subtitles (.srt/.ass)
   [8] Conform               LUT grading + loudnorm + SFX + VO + music → final MP4
 ```
 
-All intermediate results are checkpointed — resume a failed pipeline from any stage without re-running prior work.
+All intermediate results are checkpointed - resume a failed pipeline from any stage without re-running prior work.
 
 ---
 
 ## Hardware Requirements
 
-> **Warning — GPU requirements are non-trivial.** This project was developed and tested on an **Nvidia Quadro K6000 (12 GB VRAM)** with **CUDA 11.4**. The two AI models (LLaVA 1.5-7B and Mistral 7B) are loaded sequentially (never concurrently) via llama.cpp with `-ngl 99` (all layers on GPU). Each model requires a minimum of **6 GB free VRAM** at inference time.
+> **Warning** This project was developed and tested on an **Nvidia Quadro K6000 (12 GB VRAM)** with **CUDA 11.4**. The two AI models (LLaVA 1.5-7B and Mistral 7B) are loaded sequentially (never concurrently) via llama.cpp with `-ngl 99` (all layers on GPU). Each model requires a minimum of **6 GB free VRAM** at inference time.
 
 - **GPU:** Nvidia GPU with ≥ 8 GB VRAM (12 GB recommended)
 - **CUDA:** 11.4 or compatible driver
