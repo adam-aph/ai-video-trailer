@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Structural & Sensory Overhaul
 status: unknown
-last_updated: "2026-02-28T17:28:52.490Z"
+last_updated: "2026-02-28T17:48:20.813Z"
 progress:
   total_phases: 5
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 11
-  completed_plans: 7
+  completed_plans: 8
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-28)
 
 **Core value:** Given a feature film and its subtitle file, produce a narratively coherent, vibe-styled trailer that a human editor would be proud to show.
-**Current focus:** v2.0 Phase 9 — Music Selection (Jamendo API integration)
+**Current focus:** v2.0 Phase 10 — SFX, VO, and Audio Mix
 
 ## Current Position
 
-Phase: 9 of 10 (BPM Grid and Music Bed) — IN PROGRESS
-Plan: 2 of 3 in current phase — COMPLETE
-Status: Phase 9 Plan 02 complete — assembly/music.py with Jamendo fetch and permanent per-vibe cache
-Last activity: 2026-02-28 — Phase 9 Plan 02 executed — MusicBed dataclass, fetch_music_for_vibe, 18-vibe mapping; librosa+soundfile added to pyproject.toml; 176 tests pass
+Phase: 9 of 10 (BPM Grid and Music Bed) — COMPLETE
+Plan: 3 of 3 in current phase — COMPLETE
+Status: Phase 9 complete — music fetch, BPM detection, beat snapping, ESCALATION->CLIMAX silence insertion, Stage 7 checkpoint, 199 tests pass
+Last activity: 2026-02-28 — Phase 9 Plan 03 executed — silence insertion, inject_after_clip in conform_manifest, assemble_manifest 3-tuple, cli Stage 7, 23 new tests
 
-Progress: [████░░░░░░] 55% (v2.0 milestone — 6/11 plans complete)
+Progress: [█████░░░░░] 64% (v2.0 milestone — 8/11 plans complete)
 
 ## Performance Metrics
 
@@ -55,6 +55,7 @@ Progress: [████░░░░░░] 55% (v2.0 milestone — 6/11 plans co
 | 08 Zone Matching | 2/2 | 15 min |
 | 09 Music Bed | 1/3 | 2 min |
 | Phase 09 P01 | 193 | 2 tasks | 2 files |
+| Phase 09 P03 | 17 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,9 @@ Recent decisions affecting v2.0 work:
 - [Phase 09-02]: MusicBed runtime dataclass intentionally separate from manifest/schema.py MusicBed Pydantic model; Plan 03 converts between them
 - [Phase 09-01]: BpmGrid exists in two forms: assembly/bpm.py dataclass (carries full beat_times_s list for computation) and manifest/schema.py Pydantic model (stores only bpm+beat_count+source for JSON manifest). No cross-import between packages.
 - [Phase 09-01]: resolve_bpm() uses 0.7x vibe_min threshold for half-tempo guard and 1.4x vibe_max for double-tempo guard — matches RESEARCH.md Pattern 2 tolerances
+- [Phase 09-03]: silence_injection returned as separate dict from extra_paths — injected mid-list at ESCALATION->CLIMAX boundary, not appended at trailer end
+- [Phase 09-03]: inject_after_clip is 1-based clip count; inject_after_clip=0 prepends; loop uses i == inject_after_clip - 1 for 0-based match
+- [Phase 09-03]: Music+BPM run inside assemble_manifest; cli.py Stage 7 is lightweight checkpoint recording result via ckpt.mark_stage_complete('music')
 
 ### Pending Todos
 
@@ -102,5 +106,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Phase 9 Plan 02 complete — assembly/music.py with Jamendo API fetch, permanent per-vibe cache, graceful None; librosa and soundfile added to pyproject.toml; 176 tests pass
+Stopped at: Completed 09-03-PLAN.md — Phase 9 complete; silence insertion, inject_after_clip, assemble_manifest 3-tuple, Stage 7 checkpoint, 199 tests pass
 Resume file: None

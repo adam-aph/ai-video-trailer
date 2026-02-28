@@ -61,7 +61,7 @@ Requirements for v2.0 Structural & Sensory Overhaul. Each maps to a roadmap phas
 - [x] **EORD-01**: Clips are assembled in zone-first order (BEGINNING → ESCALATION → CLIMAX), not film chronology
 - [x] **EORD-02**: Within each zone, clips are ranked by emotional signal score (not source timestamp)
 - [x] **EORD-03**: Act 1 clips average 4-8 beats/clip; Act 3 clips average 1-2 beats/clip (montage density)
-- [ ] **EORD-04**: A deliberate silence segment (3-5s black video + muted audio) is inserted at the Act 2→3 boundary
+- [x] **EORD-04**: A deliberate silence segment (3-5s black video + muted audio) is inserted at the Act 2→3 boundary
 
 ### BPM Grid
 
@@ -128,7 +128,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EORD-01 | Phase 8 | Complete |
 | EORD-02 | Phase 8 | Complete |
 | EORD-03 | Phase 8 | Complete |
-| EORD-04 | Phase 9 | Pending |
+| EORD-04 | Phase 9 | Complete |
 | BPMG-01 | Phase 9 | Complete |
 | BPMG-02 | Phase 9 | Complete |
 | BPMG-03 | Phase 9 | Complete |
