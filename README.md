@@ -4,7 +4,7 @@
 ![CUDA](https://img.shields.io/badge/CUDA-11.4-green?logo=nvidia)
 ![FFmpeg](https://img.shields.io/badge/FFmpeg-required-orange?logo=ffmpeg)
 ![Tests](https://img.shields.io/badge/tests-207%20passing-brightgreen)
-![License](https://img.shields.io/badge/license-MIT-lightgrey)
+![License](https://img.shields.io/badge/License-Apache_2.0-lightgrey)
 
 CineCut AI transforms any long-form film into a polished, genre-aware trailer using a fully local AI stack — no cloud APIs, no manual editing. Feed it a video and a subtitle file; it returns a cinematic MP4 trailer with color grading, a licensed music bed, sound effects, and voice-over — all cut to beat.
 
