@@ -118,7 +118,8 @@ def generate_silence_segment(
         "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
         "-shortest",
         "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
-        "-c:a", "aac", "-ar", "48000",
+        "-pix_fmt", "yuv420p",          # match pixel format of extracted source clips
+        "-c:a", "aac", "-ar", "48000", "-ac", "2",  # force stereo — source clips may be 5.1
         str(output_path),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)

@@ -306,7 +306,15 @@ def main(
                     timestamps = json.loads(_timestamps_cache.read_text(encoding="utf-8"))
                 else:
                     # Fallback: timestamps file missing (old work dir) — re-run scene detection
-                    timestamps = collect_keyframe_timestamps(proxy_path, subtitle_midpoints)
+                    with Progress(
+                        SpinnerColumn(),
+                        TextColumn("[progress.description]{task.description}"),
+                        TimeElapsedColumn(),
+                        console=console,
+                        transient=True,
+                    ) as fb_progress:
+                        fb_progress.add_task("Re-running scene detection (timestamps cache missing)...", total=None)
+                        timestamps = collect_keyframe_timestamps(proxy_path, subtitle_midpoints)
                     _timestamps_cache.write_text(json.dumps(timestamps), encoding="utf-8")
                 with Progress(
                     SpinnerColumn(),
@@ -462,9 +470,9 @@ def main(
                 save_checkpoint(ckpt, work_dir)
                 console.print(f"[green]Assembly complete: {len(reordered_manifest.clips)} clips ordered\n")
             else:
-                from cinecut.manifest.loader import load_manifest as _lm
-                reordered_manifest = _lm(Path(ckpt.assembly_manifest_path))
-                _, extra_paths, silence_injection = assemble_manifest(trailer_manifest, video, work_dir)
+                # Re-run assemble_manifest to pick up any newly-cached music/BPM
+                # (old saved manifest may have music_bed=null if run before JAMENDO was set).
+                reordered_manifest, extra_paths, silence_injection = assemble_manifest(trailer_manifest, video, work_dir)
                 console.print(f"[yellow]Resuming:[/] Stage 7 already complete\n")
 
             # --- Stage 7/8: Music fetch and BPM detection (MUSC-01, MUSC-02, BPMG-01) ---

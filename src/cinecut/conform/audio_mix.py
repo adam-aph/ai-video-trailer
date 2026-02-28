@@ -125,6 +125,29 @@ def _loudnorm_stem(input_path: Path, output_path: Path) -> Path:
     return output_path
 
 
+def _sfx_to_aac(input_path: Path, output_path: Path) -> Path:
+    """Convert SFX WAV to AAC without loudnorm.
+
+    SFX is an event-based stem (brief sounds at specific timeline positions, long
+    silence gaps between). loudnorm on a mostly-silent file measures very low integrated
+    loudness and applies enormous gain, amplifying silence to audible noise and producing
+    a corrupted output with wrong duration. Simple WAV→AAC conversion preserves the
+    synthesized amplitude (0.5-0.6 peak) which is appropriate for SFX in the mix.
+    """
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(input_path),
+        "-c:a", "aac",
+        "-ar", "48000",
+        "-ac", "2",
+        str(output_path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise ConformError(output_path, result.stderr[-500:])
+    return output_path
+
+
 def mix_four_stems(
     concat_path: Path,
     sfx_mix: Path,
@@ -188,9 +211,10 @@ def mix_four_stems(
     film_audio_norm = stems_dir / "film_audio.aac"
     _loudnorm_stem(film_audio_raw, film_audio_norm)
 
-    # SFX mix (WAV -> AAC normalized)
+    # SFX mix (WAV -> AAC, NO loudnorm — SFX is event-based with long silence gaps;
+    # loudnorm on a mostly-silent file massively amplifies noise and corrupts duration)
     sfx_norm = stems_dir / "sfx_norm.aac"
-    _loudnorm_stem(sfx_mix, sfx_norm)
+    _sfx_to_aac(sfx_mix, sfx_norm)
 
     # Music bed (optional — three-stem fallback if absent)
     use_music = music_bed_path is not None and music_bed_path.exists()
@@ -236,19 +260,32 @@ def mix_four_stems(
     trailer_final = work_dir / "trailer_final.mp4"
 
     if use_music and music_norm is not None:
-        # Four-stem mix: film + music (ducked) + sfx + vo
-        filter_complex = (
-            "[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[film];"
-            "[2:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[music];"
-            "[3:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[sfx];"
-            "[4:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[vo];"
-            "[vo]asplit=2[vo_out][vo_sc];"
-            f"[music][vo_sc]sidechaincompress=threshold={DUCK_THRESHOLD}:"
-            f"ratio={DUCK_RATIO}:attack={DUCK_ATTACK_MS}:release={DUCK_RELEASE_MS}:"
-            f"makeup=1[music_ducked];"
-            f"[film][music_ducked][sfx][vo_out]amix=inputs=4:normalize=0:"
-            f"weights='{STEM_WEIGHTS_FOUR}'[mixed]"
-        )
+        if vo_clips:
+            # Four-stem mix with sidechain ducking: music ducks during VO
+            filter_complex = (
+                "[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[film];"
+                "[2:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[music];"
+                "[3:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[sfx];"
+                "[4:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[vo];"
+                "[vo]asplit=2[vo_out][vo_sc];"
+                f"[music][vo_sc]sidechaincompress=threshold={DUCK_THRESHOLD}:"
+                f"ratio={DUCK_RATIO}:attack={DUCK_ATTACK_MS}:release={DUCK_RELEASE_MS}:"
+                f"makeup=1[music_ducked];"
+                f"[film][music_ducked][sfx][vo_out]amix=inputs=4:normalize=0:duration=first:"
+                f"weights='{STEM_WEIGHTS_FOUR}'[mixed]"
+            )
+        else:
+            # Four-stem mix without sidechain: no VO to duck for, pass music directly
+            # (sidechaincompress with a 0.1s placeholder sidechain stops outputting after
+            # the sidechain ends, silencing the music for the rest of the trailer)
+            filter_complex = (
+                "[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[film];"
+                "[2:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[music];"
+                "[3:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[sfx];"
+                "[4:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[vo];"
+                f"[film][music][sfx][vo]amix=inputs=4:normalize=0:duration=first:"
+                f"weights='{STEM_WEIGHTS_FOUR}'[mixed]"
+            )
         mix_cmd = [
             "ffmpeg", "-y",
             "-i", str(trailer_noaudio),    # input 0: video (no audio)
@@ -271,7 +308,7 @@ def mix_four_stems(
             "[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[film];"
             "[2:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[sfx];"
             "[3:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[vo];"
-            f"[film][sfx][vo]amix=inputs=3:normalize=0:"
+            f"[film][sfx][vo]amix=inputs=3:normalize=0:duration=first:"
             f"weights='{STEM_WEIGHTS_THREE}'[mixed]"
         )
         mix_cmd = [

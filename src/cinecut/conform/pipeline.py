@@ -67,6 +67,7 @@ def extract_and_grade_clip(
             "-preset", "veryfast",
             "-c:a", "aac",
             "-ar", "48000",
+            "-ac", "2",             # force stereo — matches silence segment channel count
             "-avoid_negative_ts", "make_zero",
             str(output_path),
         ]
@@ -133,6 +134,7 @@ def extract_and_grade_clip(
             "-preset", "veryfast",
             "-c:a", "aac",
             "-ar", "48000",
+            "-ac", "2",             # force stereo — matches silence segment channel count
             "-avoid_negative_ts", "make_zero",
             str(output_path),
         ]
@@ -316,4 +318,8 @@ def conform_manifest(
         work_dir=work_dir,
     )
 
-    return final_output_path
+    # Replace the intermediate pass2 concat with the fully-mixed final output so the
+    # source-adjacent file (e.g. Film_trailer_sci_fi.mp4) is the complete trailer with
+    # music, SFX, and VO — not the raw concat without audio mixing.
+    final_output_path.replace(pass2_concat_path)
+    return pass2_concat_path

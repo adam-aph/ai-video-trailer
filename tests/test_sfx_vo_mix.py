@@ -292,3 +292,44 @@ class TestMixFourStemsNormalizeZero:
         assert "sidechaincompress" not in full_cmd_text, (
             f"sidechaincompress found in three-stem fallback — must not be present without music"
         )
+
+    def test_four_stem_no_vo_skips_sidechaincompress(self, tmp_path):
+        """With music but no VO clips, mix must use amix=inputs=4 WITHOUT sidechaincompress.
+
+        Root cause: a 0.1s VO placeholder sidechain causes sidechaincompress to stop
+        outputting music_ducked after 0.1s, silencing music for the rest of the trailer.
+        """
+        from cinecut.conform.audio_mix import mix_four_stems
+
+        concat_path = tmp_path / "concat.mp4"
+        sfx_mix = tmp_path / "sfx_mix.wav"
+        music_path = tmp_path / "music.mp3"
+        for p in [concat_path, sfx_mix, music_path]:
+            p.touch()
+
+        with patch("cinecut.conform.audio_mix.subprocess.run") as mock_run:
+            mock_run.side_effect = _loudnorm_side_effect
+            mix_four_stems(
+                concat_path=concat_path,
+                sfx_mix=sfx_mix,
+                vo_clips=[],           # no VO — the common case
+                music_bed_path=music_path,
+                work_dir=tmp_path,
+            )
+
+        all_cmds = []
+        for c in mock_run.call_args_list:
+            cmd_list = c[0][0]
+            all_cmds.append(" ".join(str(a) for a in cmd_list))
+
+        full_cmd_text = "\n".join(all_cmds)
+
+        # Must still be a four-stem mix (film + music + sfx + vo)
+        assert "amix=inputs=4" in full_cmd_text, (
+            f"Expected amix=inputs=4 with music but no VO. Got:\n{full_cmd_text}"
+        )
+
+        # sidechaincompress must NOT appear — no VO to duck for
+        assert "sidechaincompress" not in full_cmd_text, (
+            f"sidechaincompress must be skipped when vo_clips=[] to avoid silencing music"
+        )
