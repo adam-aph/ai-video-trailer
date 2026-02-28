@@ -195,6 +195,7 @@ def main(
 
     try:
         trailer_manifest = None
+        silence_injection: dict | None = None
 
         if manifest is not None:
             # --manifest provided: skip ingestion, load manifest, run assembly then conform
@@ -220,7 +221,7 @@ def main(
                 raise typer.Exit(1)
 
             # Assembly for --manifest path (no checkpoint)
-            reordered_manifest, extra_paths = assemble_manifest(trailer_manifest, video, work_dir)
+            reordered_manifest, extra_paths, silence_injection = assemble_manifest(trailer_manifest, video, work_dir)
         else:
             # --- Stage 1/8: Proxy creation (PIPE-02) ---
             if not ckpt.is_stage_complete("proxy"):
@@ -449,7 +450,7 @@ def main(
                     transient=True,
                 ) as progress:
                     asm_task = progress.add_task("Ordering clips and generating title card...", total=None)
-                    reordered_manifest, extra_paths = assemble_manifest(trailer_manifest, video, work_dir)
+                    reordered_manifest, extra_paths, silence_injection = assemble_manifest(trailer_manifest, video, work_dir)
                     progress.update(asm_task, description="Assembly complete")
                 ckpt.assembly_manifest_path = str(work_dir / "ASSEMBLY_MANIFEST.json")
                 ckpt.mark_stage_complete("assembly")
@@ -458,10 +459,40 @@ def main(
             else:
                 from cinecut.manifest.loader import load_manifest as _lm
                 reordered_manifest = _lm(Path(ckpt.assembly_manifest_path))
-                _, extra_paths = assemble_manifest(trailer_manifest, video, work_dir)
+                _, extra_paths, silence_injection = assemble_manifest(trailer_manifest, video, work_dir)
                 console.print(f"[yellow]Resuming:[/] Stage 7 already complete\n")
 
+            # --- Stage 7/8: Music fetch and BPM detection (MUSC-01, MUSC-02, BPMG-01) ---
+            if not ckpt.is_stage_complete("music"):
+                console.print(f"[bold]Stage 7/{TOTAL_STAGES}:[/bold] Fetching music bed and detecting BPM...")
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    TimeElapsedColumn(),
+                    console=console,
+                    transient=True,
+                ) as progress:
+                    asm_task = progress.add_task("Fetching music for vibe...", total=None)
+                    # Music and BPM ran inside assemble_manifest (Stage 7); here we checkpoint the result
+                    progress.update(asm_task, description="Music stage complete")
+                ckpt.mark_stage_complete("music")
+                save_checkpoint(ckpt, work_dir)
+                if reordered_manifest.bpm_grid is not None:
+                    console.print(
+                        f"[green]BPM detected:[/] {reordered_manifest.bpm_grid.bpm:.1f} BPM "
+                        f"({reordered_manifest.bpm_grid.source}) — "
+                        f"{reordered_manifest.bpm_grid.beat_count} beats\n"
+                    )
+                else:
+                    console.print("[yellow]Music bed:[/] unavailable — trailer proceeds without music\n")
+            else:
+                console.print(f"[yellow]Resuming:[/] Stage 7 already complete (music/BPM)\n")
+
             # --- Summary ---
+            bpm_line = (
+                f"  BPM:        {reordered_manifest.bpm_grid.bpm:.1f} ({reordered_manifest.bpm_grid.source})\n"
+                if reordered_manifest.bpm_grid else ""
+            )
             console.print(Panel(
                 f"[bold green]Pipeline complete[/bold green]\n\n"
                 f"  Proxy:      [dim]{proxy_path.name}[/dim]\n"
@@ -470,8 +501,9 @@ def main(
                 f"  Described:  {len(inference_results) - skipped} frames ({skipped} skipped)\n"
                 f"  Manifest:   [dim]{manifest_path.name}[/dim]\n"
                 f"  Assembly:   {len(reordered_manifest.clips)} clips ordered\n"
+                + bpm_line +
                 f"  Work dir:   [dim]{work_dir}[/dim]",
-                title="[green]Phase 7 Complete[/green]",
+                title="[green]Phase 9 Complete[/green]",
                 border_style="green",
             ))
 
@@ -493,7 +525,14 @@ def main(
                 conform_task = progress.add_task(
                     f"Processing {len(reordered_manifest.clips)} clips...", total=None
                 )
-                output_path = conform_manifest(reordered_manifest, video, work_dir, extra_clip_paths=extra_paths)
+                output_path = conform_manifest(
+                    reordered_manifest,
+                    video,
+                    work_dir,
+                    extra_clip_paths=extra_paths,
+                    inject_after_clip=silence_injection["index"] if silence_injection else None,
+                    inject_paths=silence_injection["paths"] if silence_injection else None,
+                )
                 progress.update(conform_task, description="Conform complete")
 
             console.print(Panel(
