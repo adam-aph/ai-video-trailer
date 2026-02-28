@@ -47,7 +47,7 @@ Requirements for v2.0 Structural & Sensory Overhaul. Each maps to a roadmap phas
 
 - [x] **IINF-01**: Pipeline resume skips LLaVA inference when a valid SceneDescription cache exists for the source file
 - [x] **IINF-02**: SceneDescription cache is automatically invalidated when source file mtime or size changes
-- [ ] **IINF-03**: System resolves all model files (LLaVA GGUF, mmproj, text GGUF) from `~/models` by default; directory overridable via `CINECUT_MODELS_DIR` environment variable
+- [x] **IINF-03**: System resolves all model files (LLaVA GGUF, mmproj, text GGUF) from `~/models` by default; directory overridable via `CINECUT_MODELS_DIR` environment variable
 - [ ] **IINF-04**: Pipeline uses heuristic zone fallback (5% / 45% / 80% of runtime) when the text model GGUF file is not present in the models directory
 
 ### Structural Analysis
@@ -120,7 +120,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | IINF-01 | Phase 6 | Complete |
 | IINF-02 | Phase 6 | Complete |
-| IINF-03 | Phase 7 | Pending |
+| IINF-03 | Phase 7 | Complete |
 | IINF-04 | Phase 7 | Pending |
 | STRC-01 | Phase 7 | Pending |
 | STRC-02 | Phase 8 | Pending |
