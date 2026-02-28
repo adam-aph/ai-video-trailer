@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Structural & Sensory Overhaul
 status: unknown
-last_updated: "2026-02-28T17:52:34.027Z"
+last_updated: "2026-02-28T17:53:20.368Z"
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 10
 ---
 
 # Project State
@@ -23,11 +23,11 @@ See: .planning/PROJECT.md (updated 2026-02-28)
 ## Current Position
 
 Phase: 10 of 10 (SFX, VO, and Audio Mix) — In Progress
-Plan: 1 of 3 in current phase — complete (plans 2 and 3 remaining)
-Status: Phase 10 plan 1 complete — sfx.py synthesis + timeline overlay, 199 tests pass
-Last activity: 2026-02-28 — Phase 10 Plan 01 executed — synthesize_sfx_files(), apply_sfx_to_timeline(), FFmpeg aevalsrc chirps
+Plan: 2 of 3 in current phase — complete (plan 3 remaining)
+Status: Phase 10 plan 2 complete — vo_extract.py protagonist identification + VO extraction, 199 tests pass
+Last activity: 2026-02-28 — Phase 10 Plan 02 executed — identify_protagonist(), extract_vo_clips(), VoClip; pysubs2 Counter; output-seeking FFmpeg; 0.8s minimum; Acts 1+2 only
 
-Progress: [██████░░░░] 73% (v2.0 milestone — 9/11 plans complete)
+Progress: [███████░░░] 82% (v2.0 milestone — 10/11 plans complete)
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Progress: [██████░░░░] 73% (v2.0 milestone — 9/11 plans co
 | Phase 09 P01 | 193 | 2 tasks | 2 files |
 | Phase 09 P03 | 17 | 2 tasks | 6 files |
 | Phase 10 P01 | 118 | 1 tasks | 1 files |
+| Phase 10 P02 | 2 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -94,6 +95,9 @@ Recent decisions affecting v2.0 work:
 - [Phase 09-03]: Music+BPM run inside assemble_manifest; cli.py Stage 7 is lightweight checkpoint recording result via ckpt.mark_stage_complete('music')
 - [Phase 10-01]: Linear chirp slope uses (f1-f0)/(2*d) — consistent with aevalsrc sin(2*PI*f(t)*t) convention
 - [Phase 10-01]: c=stereo in aevalsrc (not cl=stereo); adelay offsets are int milliseconds; idempotency via file existence check before FFmpeg synthesis
+- [Phase 10]: identify_protagonist returns None for SRT files — caller handles gracefully by returning []
+- [Phase 10]: Candidate selection uses longest-duration events first — favours intelligible complete utterances
+- [Phase 10]: 0.8s minimum enforced via constant BEFORE FFmpeg call — avoids spawning processes for inaudible clips
 
 ### Pending Todos
 
@@ -109,5 +113,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Completed 10-01-PLAN.md — sfx.py SFX synthesis and timeline overlay; synthesize_sfx_files(), apply_sfx_to_timeline(); 199 tests pass
+Stopped at: Completed 10-02-PLAN.md — vo_extract.py protagonist VO extraction; identify_protagonist(), extract_vo_clips(), VoClip; 199 tests pass
 Resume file: None

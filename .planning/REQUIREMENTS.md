@@ -89,9 +89,9 @@ Requirements for v2.0 Structural & Sensory Overhaul. Each maps to a roadmap phas
 
 ### VO Narration
 
-- [ ] **VONR-01**: System identifies the protagonist as the most frequently-speaking character in the subtitle corpus (via Stage 1 LLM output or dialogue-line-count fallback)
-- [ ] **VONR-02**: Up to 3 protagonist dialogue lines are extracted as audio clips from the source film (1 in Act 1, up to 2 in Act 2, 0 in Act 3)
-- [ ] **VONR-03**: All VO clips are extracted using output-seeking FFmpeg, re-encoded to AAC 48000Hz stereo, minimum 0.8s duration
+- [x] **VONR-01**: System identifies the protagonist as the most frequently-speaking character in the subtitle corpus (via Stage 1 LLM output or dialogue-line-count fallback)
+- [x] **VONR-02**: Up to 3 protagonist dialogue lines are extracted as audio clips from the source film (1 in Act 1, up to 2 in Act 2, 0 in Act 3)
+- [x] **VONR-03**: All VO clips are extracted using output-seeking FFmpeg, re-encoded to AAC 48000Hz stereo, minimum 0.8s duration
 
 ---
 
@@ -141,9 +141,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | SFXL-01 | Phase 10 | Complete |
 | SFXL-02 | Phase 10 | Complete |
 | SFXL-03 | Phase 10 | Complete |
-| VONR-01 | Phase 10 | Pending |
-| VONR-02 | Phase 10 | Pending |
-| VONR-03 | Phase 10 | Pending |
+| VONR-01 | Phase 10 | Complete |
+| VONR-02 | Phase 10 | Complete |
+| VONR-03 | Phase 10 | Complete |
 
 **Coverage:**
 - v2 requirements: 26 total

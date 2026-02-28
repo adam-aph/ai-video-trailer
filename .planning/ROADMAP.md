@@ -122,4 +122,4 @@ Plans:
 | 7. Structural Analysis | v2.0 | 0/2 | Not started | - |
 | 8. Zone Matching and Non-Linear Ordering | v2.0 | 0/2 | Not started | - |
 | 9. BPM Grid and Music Bed | v2.0 | 0/3 | Not started | - |
-| 10. SFX, VO, and Audio Mix | 1/3 | In Progress|  | - |
+| 10. SFX, VO, and Audio Mix | 2/3 | In Progress|  | - |
