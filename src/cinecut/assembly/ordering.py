@@ -1,6 +1,10 @@
 """3-act clip ordering and pacing curve enforcement for trailer assembly."""
+import subprocess
+from pathlib import Path
+
 from cinecut.manifest.schema import ClipEntry, NarrativeZone, TrailerManifest
 from cinecut.manifest.vibes import VibeProfile
+from cinecut.errors import ConformError
 
 # Canonical act sequence for a trailer.
 # title_card and button are generated segments — NOT present in the input clips list.
@@ -14,6 +18,8 @@ ACT_ORDER = [
 ]
 
 MIN_CLIP_DURATION_S = 0.5  # Never trim below 0.5s to avoid empty clips
+
+SILENCE_DURATION_S = 4.0   # Deliberate black silence at Act 2->3 boundary (EORD-04)
 
 # Zone ordering priority for zone-first assembly (EORD-01).
 # title_card and button clips have narrative_zone=None — they fall to priority 999.
@@ -90,6 +96,71 @@ def enforce_pacing_curve(
                 new_end = clip.source_start_s + max(target, MIN_CLIP_DURATION_S)
                 result[i] = clip.model_copy(update={"source_end_s": new_end})
     return result
+
+
+def generate_silence_segment(
+    work_dir: Path,
+    width: int,
+    height: int,
+    frame_rate: str,
+    duration_s: float = SILENCE_DURATION_S,
+) -> Path:
+    """Generate black video + silent audio MP4 for Act 2->3 boundary (EORD-04).
+
+    Resolution must match source clips to avoid concat demuxer resolution mismatch (PITFALL 4).
+    Returns path to silence_act2_act3.mp4 in work_dir.
+    Raises ConformError if FFmpeg fails.
+    """
+    output_path = work_dir / "silence_act2_act3.mp4"
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "lavfi", "-i", f"color=c=black:s={width}x{height}:r={frame_rate}:d={duration_s}",
+        "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+        "-shortest",
+        "-c:v", "libx264", "-crf", "18", "-preset", "veryfast",
+        "-c:a", "aac", "-ar", "48000",
+        str(output_path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise ConformError(output_path, result.stderr[-500:])
+    return output_path
+
+
+def insert_silence_at_zone_boundary(
+    clips: list[ClipEntry],
+    work_dir: Path,
+    width: int,
+    height: int,
+    frame_rate: str = "24",
+) -> tuple[Path | None, int]:
+    """Generate silence segment if ESCALATION and CLIMAX zones both exist.
+
+    Returns (silence_path, boundary_index) where:
+      - silence_path is the generated silence_act2_act3.mp4
+      - boundary_index is the number of clips that come BEFORE the silence
+        (i.e., silence is inserted AFTER clips[:boundary_index] and BEFORE clips[boundary_index:])
+
+    Returns (None, 0) if only one zone is present or clips have no zone annotation.
+
+    The silence must be inserted BETWEEN the last ESCALATION clip and first CLIMAX clip.
+    The caller is responsible for passing boundary_index to conform_manifest via
+    inject_after_clip=boundary_index, inject_paths=[silence_path].
+    """
+    # Find the index of the last ESCALATION clip (boundary_index = that index + 1)
+    boundary_index = 0
+    has_escalation = False
+    has_climax = False
+    for i, clip in enumerate(clips):
+        zone = getattr(clip, "narrative_zone", None)
+        if zone == "ESCALATION":
+            has_escalation = True
+            boundary_index = i + 1   # silence goes AFTER this clip
+        elif zone == "CLIMAX":
+            has_climax = True
+    if not (has_escalation and has_climax):
+        return None, 0   # No zone boundary to insert — skip silence
+    return generate_silence_segment(work_dir, width, height, frame_rate), boundary_index
 
 
 def enforce_zone_pacing_curve(

@@ -203,6 +203,8 @@ def conform_manifest(
     source: Path,
     work_dir: Path,
     extra_clip_paths: list[Path] | None = None,
+    inject_after_clip: int | None = None,
+    inject_paths: list[Path] | None = None,
 ) -> Path:
     """Orchestrate full conform: extract+grade each clip, then concatenate.
 
@@ -213,6 +215,11 @@ def conform_manifest(
         extra_clip_paths: Optional list of pre-encoded clip paths (e.g. title_card.mp4,
             button.mp4) to append AFTER the manifest clips in the final concat list.
             Backward-compatible — defaults to None (no extra clips appended).
+        inject_after_clip: If provided, inject_paths are inserted into the concat list
+            AFTER the Nth extracted clip (0-indexed count of clips before insertion).
+            Used for EORD-04 silence segment at the ESCALATION->CLIMAX boundary.
+        inject_paths: Pre-encoded clip paths to inject at inject_after_clip position.
+            Ignored if inject_after_clip is None.
 
     Returns:
         Path to the final trailer MP4.
@@ -233,6 +240,11 @@ def conform_manifest(
 
     # Extract and grade each clip
     clip_output_paths: list[Path] = []
+
+    # EORD-04: inject silence before all clips when inject_after_clip == 0
+    if inject_after_clip == 0 and inject_paths:
+        clip_output_paths.extend(inject_paths)
+
     for i, clip in enumerate(manifest.clips):
         output = clips_dir / f"clip_{i:04d}.mp4"
         extract_and_grade_clip(
@@ -244,6 +256,9 @@ def conform_manifest(
             output_path=output,
         )
         clip_output_paths.append(output)
+        # EORD-04: inject silence (or other pre-encoded clips) after specified clip index
+        if inject_after_clip is not None and inject_after_clip != 0 and inject_paths and i == inject_after_clip - 1:
+            clip_output_paths.extend(inject_paths)
 
     # Append pre-encoded extra clips (title_card, button) after act3 clips
     if extra_clip_paths:
