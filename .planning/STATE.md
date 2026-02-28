@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Structural & Sensory Overhaul
 status: unknown
-last_updated: "2026-02-28T17:48:20.813Z"
+last_updated: "2026-02-28T17:52:34.027Z"
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 11
-  completed_plans: 8
+  completed_plans: 9
 ---
 
 # Project State
@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-02-28)
 
 ## Current Position
 
-Phase: 9 of 10 (BPM Grid and Music Bed) — COMPLETE
-Plan: 3 of 3 in current phase — COMPLETE
-Status: Phase 9 complete — music fetch, BPM detection, beat snapping, ESCALATION->CLIMAX silence insertion, Stage 7 checkpoint, 199 tests pass
-Last activity: 2026-02-28 — Phase 9 Plan 03 executed — silence insertion, inject_after_clip in conform_manifest, assemble_manifest 3-tuple, cli Stage 7, 23 new tests
+Phase: 10 of 10 (SFX, VO, and Audio Mix) — In Progress
+Plan: 1 of 3 in current phase — complete (plans 2 and 3 remaining)
+Status: Phase 10 plan 1 complete — sfx.py synthesis + timeline overlay, 199 tests pass
+Last activity: 2026-02-28 — Phase 10 Plan 01 executed — synthesize_sfx_files(), apply_sfx_to_timeline(), FFmpeg aevalsrc chirps
 
-Progress: [█████░░░░░] 64% (v2.0 milestone — 8/11 plans complete)
+Progress: [██████░░░░] 73% (v2.0 milestone — 9/11 plans complete)
 
 ## Performance Metrics
 
@@ -56,6 +56,7 @@ Progress: [█████░░░░░] 64% (v2.0 milestone — 8/11 plans co
 | 09 Music Bed | 1/3 | 2 min |
 | Phase 09 P01 | 193 | 2 tasks | 2 files |
 | Phase 09 P03 | 17 | 2 tasks | 6 files |
+| Phase 10 P01 | 118 | 1 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -91,6 +92,8 @@ Recent decisions affecting v2.0 work:
 - [Phase 09-03]: silence_injection returned as separate dict from extra_paths — injected mid-list at ESCALATION->CLIMAX boundary, not appended at trailer end
 - [Phase 09-03]: inject_after_clip is 1-based clip count; inject_after_clip=0 prepends; loop uses i == inject_after_clip - 1 for 0-based match
 - [Phase 09-03]: Music+BPM run inside assemble_manifest; cli.py Stage 7 is lightweight checkpoint recording result via ckpt.mark_stage_complete('music')
+- [Phase 10-01]: Linear chirp slope uses (f1-f0)/(2*d) — consistent with aevalsrc sin(2*PI*f(t)*t) convention
+- [Phase 10-01]: c=stereo in aevalsrc (not cl=stereo); adelay offsets are int milliseconds; idempotency via file existence check before FFmpeg synthesis
 
 ### Pending Todos
 
@@ -106,5 +109,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Completed 09-03-PLAN.md — Phase 9 complete; silence insertion, inject_after_clip, assemble_manifest 3-tuple, Stage 7 checkpoint, 199 tests pass
+Stopped at: Completed 10-01-PLAN.md — sfx.py SFX synthesis and timeline overlay; synthesize_sfx_files(), apply_sfx_to_timeline(); 199 tests pass
 Resume file: None

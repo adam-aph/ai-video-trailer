@@ -83,9 +83,9 @@ Requirements for v2.0 Structural & Sensory Overhaul. Each maps to a roadmap phas
 
 ### SFX
 
-- [ ] **SFXL-01**: A synthesized swoosh/sweep SFX is added at each scene cut transition
-- [ ] **SFXL-02**: SFX intensity varies by cut type: hard cuts get a short sharp sweep (0.4s); act-boundary transitions get a slower full-spectrum sweep (1.0-1.5s)
-- [ ] **SFXL-03**: All SFX are synthesized via FFmpeg `aevalsrc` (no external SFX files required); explicitly at 48000Hz
+- [x] **SFXL-01**: A synthesized swoosh/sweep SFX is added at each scene cut transition
+- [x] **SFXL-02**: SFX intensity varies by cut type: hard cuts get a short sharp sweep (0.4s); act-boundary transitions get a slower full-spectrum sweep (1.0-1.5s)
+- [x] **SFXL-03**: All SFX are synthesized via FFmpeg `aevalsrc` (no external SFX files required); explicitly at 48000Hz
 
 ### VO Narration
 
@@ -138,9 +138,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AMIX-01 | Phase 10 | Pending |
 | AMIX-02 | Phase 10 | Pending |
 | AMIX-03 | Phase 10 | Pending |
-| SFXL-01 | Phase 10 | Pending |
-| SFXL-02 | Phase 10 | Pending |
-| SFXL-03 | Phase 10 | Pending |
+| SFXL-01 | Phase 10 | Complete |
+| SFXL-02 | Phase 10 | Complete |
+| SFXL-03 | Phase 10 | Complete |
 | VONR-01 | Phase 10 | Pending |
 | VONR-02 | Phase 10 | Pending |
 | VONR-03 | Phase 10 | Pending |
