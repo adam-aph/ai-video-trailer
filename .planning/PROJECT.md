@@ -2,20 +2,7 @@
 
 ## What This Is
 
-A Python 3.10+ CLI tool that performs AI-driven narrative extraction from full-length feature films to generate a stylized ~2-minute trailer based on a user-defined "Vibe Profile." The system runs a 7-stage pipeline: analysis proxy creation → hybrid keyframe extraction → subtitle parsing → LLaVA/llama-server multimodal inference → narrative beat classification and manifest generation → 3-act assembly with pacing curves → high-bitrate FFmpeg conform against the original source file. No cloud dependencies — everything runs locally on a Quadro K6000 with CUDA 11.4. Shipped v1.0 with 4,822 LOC Python, 119 unit tests, and all 24 v1 requirements complete.
-
-## Current Milestone: v2.0 Structural & Sensory Overhaul
-
-**Goal:** Transform the flat chronological highlight reel into a dramatically structured, sonically layered trailer — non-linear scene ordering, BPM-driven edit rhythm, three-act arc, music bed, synthesized transition SFX, and protagonist VO extracted from film audio.
-
-**Target features:**
-- Two-stage LLM pipeline: text-only structural analysis (BEGIN_T/ESCALATION_T/CLIMAX_T) → scene-to-zone matching
-- Non-linear scene ordering by semantic zone, not film chronology
-- BPM grid / beat map driving cut timing per act
-- Music bed per vibe sourced from royalty-free archive (auto-downloaded on first use)
-- Transition SFX synthesized via FFmpeg/SoX (no external SFX files)
-- Silence/breathing room segments as deliberate editorial tool
-- Hero character VO extracted from film audio at protagonist dialogue timestamps
+A Python 3.10+ CLI tool that performs AI-driven narrative extraction from full-length feature films to generate a stylized ~2-minute trailer based on a user-defined "Vibe Profile." The system runs a multi-stage pipeline: analysis proxy creation → hybrid keyframe extraction → subtitle parsing → LLaVA multimodal inference (cached via msgpack) → structural analysis (Mistral 7B, BEGIN_T/ESCALATION_T/CLIMAX_T) → zone-based clip assignment and non-linear ordering → BPM-synced assembly with silence segmentation → FFmpeg conform with music bed, synthesized SFX, protagonist VO, and four-stem audio mix. No cloud dependencies — everything runs locally on a Quadro K6000 with CUDA 11.4. Shipped v2.0 with 5,644 LOC Python, 207 unit tests, and all 50 requirements complete.
 
 ## Core Value
 
@@ -39,17 +26,19 @@ Given a feature film and its subtitle file, produce a narratively coherent, vibe
 - ✓ Audio normalization with LUFS targeting per vibe (two-pass loudnorm; single-pass for clips < 3s) — v1.0
 - ✓ LUT application via FFmpeg lut3d filter based on vibe selection — v1.0
 - ✓ CLI interface: `cinecut <video> --subtitle <srt> --vibe <name> [--review]` — v1.0
+- ✓ SceneDescription persistence (msgpack cache) — pipeline resume skips 30-60 min LLaVA re-inference — v2.0
+- ✓ Two-stage LLM pipeline: text structural analysis (Mistral 7B) + scene-zone matching (sentence-transformers) — v2.0
+- ✓ Non-linear scene ordering by semantic zone (BEGINNING → ESCALATION → CLIMAX), not film chronology — v2.0
+- ✓ BPM-driven edit pacing grid with octave correction and per-vibe defaults — v2.0
+- ✓ Music bed per vibe (Jamendo CC-licensed, auto-downloaded, permanently cached) with dynamic ducking — v2.0
+- ✓ Transition SFX synthesized via FFmpeg aevalsrc — no external SFX files required — v2.0
+- ✓ Silence/breathing room segment (3-5s) at Act 2→3 boundary as explicit editorial tool — v2.0
+- ✓ Protagonist VO extracted from film audio at dialogue timestamps, placed in Acts 1-2 — v2.0
+- ✓ Four-stem audio mix: film audio + music + SFX + VO with sidechaincompress ducking — v2.0
 
 ### Active
 
-- [ ] Two-stage LLM pipeline: text structural analysis + scene-zone matching — v2.0
-- [ ] Non-linear scene ordering by semantic zone (not film chronology) — v2.0
-- [ ] BPM-driven edit pacing grid with per-act timing curves — v2.0
-- [ ] Music bed per vibe (royalty-free, auto-downloaded) with dynamic ducking — v2.0
-- [ ] Transition SFX synthesized via FFmpeg/SoX — v2.0
-- [ ] Silence/breathing room segments as explicit editorial tool — v2.0
-- [ ] Protagonist VO extracted from film audio at dialogue timestamps — v2.0
-- [ ] SceneDescription persistence so pipeline resume skips inference re-run — v2.0
+(None — planning next milestone)
 
 ### Out of Scope
 
@@ -59,19 +48,23 @@ Given a feature film and its subtitle file, produce a narratively coherent, vibe
 - Real-time preview during editing — manifest-based workflow only
 - Multi-GPU or distributed processing — single Quadro K6000
 - Ollama or Python-native LLM loading — llama-server is the pre-configured engine; deviating risks CUDA 11.4 instability
-- Offline mode with cached models — llama-server persistent process covers this
+- VO quality scoring beyond dialogue-line-count heuristic — deferred to v3.0
+- Per-scene SFX intensity calibration — fixed tiers adequate for v2.0; deferred to v3.0
+- Music archive management UI — not yet needed; deferred to v3.0
 
 ## Context
 
-**Shipped v1.0 on 2026-02-27.** 4,822 Python LOC across 95 files. 78 commits over 2 days (2026-02-26 → 2026-02-27). 119 unit tests, 0 failures.
+**Shipped v2.0 on 2026-02-28.** 5,644 Python LOC across 36 src/ files. 60 commits over 1 day. 207 unit tests, 0 failures.
 
-**Tech stack:** Python 3.10+, Typer + Rich (CLI), Pydantic (manifest schema), pysubs2 (SRT/ASS), OpenCV headless (keyframes, face detection), NumPy (LUT generation), requests (llama-server HTTP), FFmpeg (proxy + conform + lavfi).
+**v1.0 shipped 2026-02-27.** 4,822 Python LOC, 119 tests, 78 commits over 2 days.
+
+**Tech stack:** Python 3.10+, Typer + Rich (CLI), Pydantic (manifest schema), pysubs2 (SRT/ASS), OpenCV headless (keyframes, face detection), NumPy (LUT generation), requests (llama-server HTTP + Jamendo API), librosa + soundfile (BPM detection), sentence-transformers (zone matching), FFmpeg (proxy + conform + lavfi + audio mix).
 
 **Hardware:** Nvidia Quadro K6000 (12GB VRAM) | Driver 470.256.02 | CUDA 11.4
 
-**Inference:** llama-server HTTP mode (persistent, avoids per-frame model reload). GPU_LOCK enforces sequential GPU use — llama-server and FFmpeg never run concurrently. mmproj binary patch (42 bytes, clip.projector_type = "mlp") required for llama.cpp 8156 compatibility with mys/ggml_llava-v1.5-7b.
+**Inference:** llama-server HTTP mode (persistent, avoids per-frame model reload). GPU_LOCK enforces sequential GPU use — LlavaEngine (port 8089) and TextEngine (port 8090) never run concurrently; wait_for_vram() polling between model swaps. mmproj binary patch (42 bytes, clip.projector_type = "mlp") required for llama.cpp 8156 compatibility with mys/ggml_llava-v1.5-7b.
 
-**Known limitations from v1.0:** SceneDescription (inference results) are not persisted — resume after failure re-runs inference from scratch for Stage 4.
+**v2.0 resolved:** SceneDescription (inference results) now persisted to `<work_dir>/<stem>.scenedesc.msgpack` — resume after failure skips Stage 4 inference entirely.
 
 ## Constraints
 
@@ -96,8 +89,14 @@ Given a feature film and its subtitle file, produce a narratively coherent, vibe
 | hatchling over setuptools | Handles src/ layout automatically | ✓ Good — no [tool.setuptools] sections needed |
 | Short clips < 3s use volume=0dB (not two-pass loudnorm) | loudnorm unstable on sub-3s audio (Act 3 montage clips) | ✓ Good — prevents FFmpeg instability; acceptable for short clips |
 | Atomic checkpoint via tempfile + os.replace() | POSIX-atomic; power-loss-safe | ✓ Good — same-mount temp file guarantees atomic rename on Linux |
-| SceneDescription not persisted (v1.0) | Inference persistence adds schema/IO complexity; v1.0 tight scope | ⚠️ Revisit — resume after failure re-runs 30-60min inference stage; track as v2 priority |
+| SceneDescription persisted to msgpack (v2.0) | Eliminates 30-60min re-inference penalty on crash resume | ✓ Good — invalidates on mtime/size change; cascade checkpoint reset prevents stale stage data |
 | title_card and button as pre-encoded MP4 files (FFmpeg lavfi) | ClipEntry objects would extract first 5s of film as fake segments | ✓ Good — lavfi black segment is correct architecture |
+| TextEngine on port 8090, LlavaEngine on port 8089 | Never run concurrently — wait_for_vram() polling required between model swaps | ✓ Good — prevents VRAM exhaustion on K6000; clean separation of inference backends |
+| CPU sentence-transformers for zone matching (all-MiniLM-L6-v2) | GPU sentence-transformers incompatible with CUDA 11.4 stack | ✓ Good — CPU inference fast enough for clip-count workloads; util patched at module level for test isolation |
+| amix normalize=0 mandatory throughout | normalize=1 destroys sidechain ducking ratios | ✓ Good — stem-level loudnorm at −16 LUFS before mixing preserves ducking ratios correctly |
+| Jamendo API v3 with audiodownload_allowed=True filter | April 2022 API change — tracks without this flag return 404 on download | ✓ Good — filter required for reliable track selection |
+| soundfile>=0.12.1 pinned for MP3 support | librosa.load() on .mp3 raises LibsndfileError without bundled libsndfile 1.1.0+ | ✓ Good — pinned version prevents regression |
+| NarrativeZone as (str, Enum) | Pydantic v2 serializes plain string ("BEGINNING") not dict; backward compat via Optional default=None | ✓ Good — old v1.0 manifests load without ValidationError |
 
 ---
-*Last updated: 2026-02-28 after v2.0 milestone start*
+*Last updated: 2026-02-28 after v2.0 milestone*

@@ -1,9 +1,9 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
+milestone: v2.0
 milestone_name: Structural & Sensory Overhaul
-status: unknown
-last_updated: "2026-02-28T18:10:28.263Z"
+status: complete
+last_updated: "2026-02-28T21:43:57.846Z"
 progress:
   total_phases: 5
   completed_phases: 5
@@ -18,14 +18,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-28)
 
 **Core value:** Given a feature film and its subtitle file, produce a narratively coherent, vibe-styled trailer that a human editor would be proud to show.
-**Current focus:** v2.0 Phase 10 — SFX, VO, and Audio Mix
+**Current focus:** Planning next milestone
 
 ## Current Position
 
-Phase: 10 of 10 (SFX, VO, and Audio Mix) — COMPLETE
-Plan: 3 of 3 in current phase — complete
-Status: Phase 10 COMPLETE — audio_mix.py four-stem mix + pipeline Pass 3+4 wired; 206 tests pass; v2.0 milestone DONE
-Last activity: 2026-02-28 — Phase 10 Plan 03 executed — mix_four_stems(), sidechaincompress ducking, amix normalize=0, conform_manifest() Pass 3+4, 7 new unit tests
+Milestone v2.0 COMPLETE — archived to .planning/milestones/
+Status: Between milestones — run /gsd:new-milestone to start v3.0 planning
+Last activity: 2026-02-28 — v2.0 milestone complete — 5 phases, 11 plans, 207 tests, all 26 v2 requirements shipped
 
 Progress: [██████████] 100% (v2.0 milestone — 11/11 plans complete)
 
@@ -64,45 +63,7 @@ Progress: [██████████] 100% (v2.0 milestone — 11/11 plans 
 
 ### Decisions
 
-Decisions are logged in PROJECT.md Key Decisions table.
-Recent decisions affecting v2.0 work:
-
-- [Roadmap v2.0]: Phase 6 built first — zero external deps, highest ROI (eliminates 30-60min re-inference on crash)
-- [Roadmap v2.0]: STRC-02 (zone assignment) split across Phase 7 (schema/anchors) and Phase 8 (matching logic) — anchors must exist before matching can run
-- [Roadmap v2.0]: sentence-transformers must install CPU PyTorch wheel first (`--index-url https://download.pytorch.org/whl/cpu`) to prevent CUDA wheel selection incompatible with K6000
-- [Roadmap v2.0]: TextEngine (Phase 7) uses port 8090; LlavaEngine uses port 8089 — never run concurrently; nvidia-smi VRAM polling required between model swaps
-- [Roadmap v2.0]: amix normalize=0 is mandatory throughout audio mix — normalize=1 destroys ducking ratios; stem-level loudnorm before mixing
-- [Phase 6-01]: Cache stored in work_dir/<stem>.scenedesc.msgpack — lifecycle tied to work dir; deleting work dir clears cache
-- [Phase 6-01]: Invalidation on mtime OR size change — either difference triggers cache miss and inference re-run
-- [Phase 6-01]: Cascade reset (remove narrative+assembly from stages_complete) only on cache miss — prevents Stage 5 stale keyframe issue
-- [Phase 6-01]: msgpack.unpackb(raw=False, strict_map_key=False) required — avoids KeyError on bytes keys
-- [Phase 7-01]: TextEngine uses port 8090 and -c 8192 (8k context for structural analysis chunks), never --mmproj
-- [Phase 7-01]: wait_for_vram() called before GPU_LOCK.acquire() in TextEngine.__enter__ — handles async VRAM reclaim between model swaps
-- [Phase 7-01]: cli.py --model/--mmproj default=None resolved at runtime inside main() via get_models_dir() — avoids hardcoded path at import time
-- [Phase 07-02]: _clamp_anchors_to_chunk uses +-10s tolerance window to prevent hallucinated LLM timestamps from polluting median aggregation
-- [Phase 07-02]: Inline import of StructuralAnchors in structural.py avoids circular import between inference and manifest packages
-- [Phase 07-02]: statistics.median aggregation across subtitle chunks — single valid chunk passes through, multiple chunks produce true median for robustness
-- [Phase 08-01]: util exposed as module-level None attribute in zone_matching.py — set by _load_model() — so tests can patch without sentence-transformers installed
-- [Phase 08-01]: NarrativeZone(str, Enum) ensures Pydantic v2 serializes as plain string; ClipEntry.narrative_zone defaults None for backward compat with v1.0 manifests
-- [Phase 08-02]: test_no_clip_overlap rewritten to per-clip validity check — zone-first ordering breaks chronological adjacency assumption; resolve_overlaps still guarantees non-overlapping pre-sort windows
-- [Phase 08-02]: TestManifestGeneration tests patch cinecut.narrative.generator.run_zone_matching with position-based mock — sentence-transformers not installed in dev environment; mock returns correct-length zones list
-- [Phase 09-02]: audiodownload_allowed=True filter required before selecting Jamendo track (April 2022 API change — False results return 404)
-- [Phase 09-02]: soundfile>=0.12.1 pinned for MP3 support via bundled libsndfile 1.1.0+; without it librosa.load() on .mp3 raises LibsndfileError
-- [Phase 09-02]: MusicBed runtime dataclass intentionally separate from manifest/schema.py MusicBed Pydantic model; Plan 03 converts between them
-- [Phase 09-01]: BpmGrid exists in two forms: assembly/bpm.py dataclass (carries full beat_times_s list for computation) and manifest/schema.py Pydantic model (stores only bpm+beat_count+source for JSON manifest). No cross-import between packages.
-- [Phase 09-01]: resolve_bpm() uses 0.7x vibe_min threshold for half-tempo guard and 1.4x vibe_max for double-tempo guard — matches RESEARCH.md Pattern 2 tolerances
-- [Phase 09-03]: silence_injection returned as separate dict from extra_paths — injected mid-list at ESCALATION->CLIMAX boundary, not appended at trailer end
-- [Phase 09-03]: inject_after_clip is 1-based clip count; inject_after_clip=0 prepends; loop uses i == inject_after_clip - 1 for 0-based match
-- [Phase 09-03]: Music+BPM run inside assemble_manifest; cli.py Stage 7 is lightweight checkpoint recording result via ckpt.mark_stage_complete('music')
-- [Phase 10-01]: Linear chirp slope uses (f1-f0)/(2*d) — consistent with aevalsrc sin(2*PI*f(t)*t) convention
-- [Phase 10-01]: c=stereo in aevalsrc (not cl=stereo); adelay offsets are int milliseconds; idempotency via file existence check before FFmpeg synthesis
-- [Phase 10]: identify_protagonist returns None for SRT files — caller handles gracefully by returning []
-- [Phase 10]: Candidate selection uses longest-duration events first — favours intelligible complete utterances
-- [Phase 10]: 0.8s minimum enforced via constant BEFORE FFmpeg call — avoids spawning processes for inaudible clips
-- [Phase 10]: amix normalize=0 mandatory throughout — normalize=1 destroys sidechain ducking ratios (AMIX-01)
-- [Phase 10]: Stem-level loudnorm at -16 LUFS before mixing — allows amix weight ratios to hold correctly
-- [Phase 10]: Three-stem fallback (film+SFX+VO) when music_bed_path absent — MUSC-03 graceful degradation
-- [Phase 10]: subtitle_path: Path | None = None added to conform_manifest() — backward-compatible new parameter
+All v2.0 decisions logged in PROJECT.md Key Decisions table.
 
 ### Pending Todos
 
@@ -110,13 +71,13 @@ None.
 
 ### Blockers/Concerns
 
-- [Phase 7]: Mistral 7B v0.3 Q4_K_M GGUF (~4.37 GB) must be downloaded to ~/models before Phase 7 integration tests can run end-to-end
-- [Phase 9]: Jamendo API client_id registration required (free developer account at developer.jamendo.com) before Phase 9 integration testing
-- [Phase 10]: SoX availability — verify `sox --version` before Phase 10; FFmpeg-only fallback documented in research if absent
-- [Phase 10]: FFmpeg audio filtergraph parameter tuning (duck_ratio, sidechaincompress attack/release, VO-to-music volume) requires empirical validation against real film audio — treat as implementation-time iteration
+None — v2.0 milestone complete. Known implementation details for v3.0:
+- Mistral GGUF integration test requires `~/models/mistral-7b-v0.3.Q4_K_M.gguf`
+- Jamendo API requires registered client_id at developer.jamendo.com
+- FFmpeg audio filtergraph parameters (ducking ratio, sidechain attack/release) benefit from empirical tuning against real film audio
 
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Completed 10-03-PLAN.md — audio_mix.py four-stem mix; conform_manifest() Pass 3+4; 7 unit tests; 206 total tests pass; v2.0 milestone COMPLETE
+Stopped at: v2.0 milestone archived — 5 phases, 11 plans, 207 tests, 26 requirements shipped
 Resume file: None

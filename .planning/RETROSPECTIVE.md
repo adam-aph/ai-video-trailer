@@ -56,6 +56,58 @@
 
 ---
 
+## Milestone: v2.0 — Structural & Sensory Overhaul
+
+**Shipped:** 2026-02-28
+**Phases:** 5 (06-10) | **Plans:** 11 | **Duration:** 1 day
+
+### What Was Built
+
+- **Inference persistence** — msgpack SceneDescription cache; cascade checkpoint reset on cache miss; mtime/size-based invalidation. Eliminates 30-60 min LLaVA re-inference on resume.
+- **Two-stage LLM structural analysis** — Mistral 7B chunk-based subtitle analysis (BEGIN_T/ESCALATION_T/CLIMAX_T); statistics.median aggregation for robustness; 5%/45%/80% heuristic fallback when GGUF absent. TextEngine on port 8090, LlavaEngine on port 8089 — never concurrent.
+- **Zone-based non-linear ordering** — CPU sentence-transformers (all-MiniLM-L6-v2) cosine similarity; BEGINNING → ESCALATION → CLIMAX zone-first assembly; enforce_zone_pacing_curve trims Act 3 clips; replaces film-chronology ordering as core narrative claim.
+- **BPM grid + music bed** — librosa beat detection with 4-guard octave correction; Jamendo API v3 CC-licensed tracks (audiodownload_allowed=True filter required); permanent per-vibe cache at `~/.cinecut/music/`; deliberate silence segment at Act 2→3 boundary.
+- **Synthesized SFX** — FFmpeg aevalsrc linear-chirp (no external files); hard-cut (0.4s) and act-boundary (1.2s) tiers; c=stereo (not cl=stereo); adelay int milliseconds.
+- **Four-stem audio mix** — protagonist VO extraction (longest-duration dialogue events; AAC 48kHz; 0.8s minimum); sidechaincompress ducking; amix normalize=0 mandatory; stem-level loudnorm at −16 LUFS; three-stem fallback (film+SFX+VO) when music absent.
+
+### What Worked
+
+- **v1.0 checkpoint pattern paid off immediately**: The tempfile + os.replace() atomic write pattern from v1.0 was directly reusable for msgpack cache writes in Phase 6. Same pattern, new payload.
+- **Phase 6 first (inference persistence before features)**: Building the cache before any v2.0 features meant subsequent phases could iterate on real film without paying the 30-60 min re-inference tax. This was the highest-ROI decision of the milestone.
+- **CPU sentence-transformers for zone matching**: The GPU-incompatible CUDA 11.4 stack was correctly anticipated; CPU inference is fast enough for clip-count workloads and the test isolation via module-level `util = None` patching is clean.
+- **Two dataclass / Pydantic model split (BpmGrid, MusicBed)**: Separating runtime dataclasses (carry full computation data) from manifest Pydantic models (serializable subset) prevented circular imports between assembly and manifest packages.
+- **UAT discipline**: 14-test UAT run before milestone completion caught 4 real bugs (aevalsrc pow(), non-24fps assembly, amix duration, no-VO sidechain silencing) that would have been silent regressions.
+
+### What Was Inefficient
+
+- **aevalsrc pow() discovery at UAT time**: The pow() function not being supported in aevalsrc should have been caught in Phase 10 unit tests — the SFX test validated file creation but not audio content. Test chirp audio output or validate FFmpeg filtergraph before commit.
+- **Non-24fps source frame rate hardcoded**: The `r=24` hardcode in assembly was a latent bug from v1.0 that only surfaced when silence/title segments were inserted (Phase 9). Source frame rate should have been parameterized in Phase 5.
+- **amix duration=first missing**: The four-stem amix filter needed `duration=first` to prevent the mix extending beyond the video — discovered only during UAT. Audio filter correctness benefits from end-to-end output validation, not just filtergraph string checking.
+
+### Patterns Established
+
+- **Port segregation for multi-model inference**: LlavaEngine (8089) and TextEngine (8090) on distinct ports with wait_for_vram() polling between swaps. Any future model addition gets its own port; never reuse.
+- **audiodownload_allowed=True filter for Jamendo**: Required since April 2022 API change. Always filter third-party media APIs for explicit download permission before selection.
+- **Module-level sentinel for optional-dep test isolation**: `util = None` at module level in zone_matching.py; `_load_model()` assigns real object at runtime; tests patch without needing sentence-transformers installed. Generalize for any optional ML dependency.
+- **NarrativeZone as (str, Enum) for Pydantic v2**: Enum subclassing str ensures serialization as plain string, not dict. Required pattern for any enum field in Pydantic v2 manifests.
+- **Three-stem fallback for graceful music degradation**: When an external API or optional feature is unavailable, maintain pipeline continuity with a reduced-stem mix rather than aborting. The fallback path should be tested explicitly.
+
+### Key Lessons
+
+1. **Inference caching is a prerequisite for any iterative AI pipeline.** Phase 6 should have been in v1.0 scope. Any pipeline with >2 min inference should cache before shipping.
+2. **Test audio content, not just file creation.** SFX unit tests checked WAV file existence but not that the chirp was syntactically valid FFmpeg aevalsrc output. Output validation (even just `ffprobe -v error`) would have caught the pow() bug.
+3. **End-to-end audio output validation needs a dedicated test path.** The four-stem mix had three separate bugs (duration, ducking, sidechain) that only surfaced in UAT. A single integration test rendering a 5s clip with all stems would have caught all three.
+4. **Source frame rate is a pipeline-wide concern, not a per-stage concern.** Hardcoded `r=24` in assembly was invisible until silence injection created segments that needed a different frame rate. Parameterize frame rate from source at Stage 1 and thread through.
+5. **Jamendo API has undocumented behavior changes.** The audiodownload_allowed filter was not in the v3 docs but required for reliable downloads. When integrating third-party APIs, validate against real responses, not just documented schemas.
+
+### Cost Observations
+
+- Model mix: Sonnet 4.6 for planning and execution
+- Sessions: ~6 sessions across 1 day
+- Notable: Phase 8 zone matching was the most complex phase (15 min/plan avg vs 2-3 min for others) — sentence-transformers test isolation required careful module architecture
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -63,14 +115,18 @@
 | Milestone | Phases | Plans | Days | Tests | LOC |
 |-----------|--------|-------|------|-------|-----|
 | v1.0 MVP  | 5      | 17    | 2    | 119   | 4,822 |
+| v2.0 Overhaul | 5 | 11  | 1    | 207   | 5,644 |
 
 ### Quality Indicators
 
 | Milestone | Req Coverage | Deviations | Known Gaps |
 |-----------|-------------|------------|------------|
 | v1.0 MVP  | 24/24 (100%) | Minor (auto-fixed) | SceneDescription persistence |
+| v2.0 Overhaul | 26/26 (100%) | 4 UAT bugs fixed post-implementation | Audio integration test coverage |
 
 ### Recurring Patterns
 
 - Phase ordering by contract-before-consumer is a reliable structure for AI-pipeline projects
 - Hardware constraint validation should be a Phase 1 prerequisite (not Phase 3 assumption)
+- Inference caching belongs in the first milestone of any AI pipeline — iterative development without it is prohibitively slow
+- UAT catches audio mix bugs that unit tests miss — end-to-end rendering validation needed alongside unit coverage
