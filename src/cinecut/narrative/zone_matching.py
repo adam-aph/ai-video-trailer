@@ -25,6 +25,10 @@ if TYPE_CHECKING:
     from cinecut.manifest.schema import StructuralAnchors
     from sentence_transformers import SentenceTransformer
 
+# Module-level util reference: set on first model load (see _load_model).
+# Exposed at module scope so tests can patch cinecut.narrative.zone_matching.util.
+util = None  # type: ignore[assignment]
+
 MODEL_NAME = "all-MiniLM-L6-v2"
 
 # Static zone anchor phrases. Represent the semantic character of each zone.
@@ -53,14 +57,17 @@ def _load_model() -> "SentenceTransformer":
     Raises RuntimeError if sentence_transformers is not installed or if the
     model cannot be downloaded (offline environment without cached model).
     """
+    global util
     try:
         from sentence_transformers import SentenceTransformer
+        from sentence_transformers import util as _util
     except ImportError as e:
         raise RuntimeError(
             "sentence-transformers not installed. Run: "
             "pip install torch --index-url https://download.pytorch.org/whl/cpu "
             "&& pip install sentence-transformers"
         ) from e
+    util = _util
     return SentenceTransformer(MODEL_NAME, device="cpu")
 
 
@@ -120,7 +127,6 @@ def assign_narrative_zone(
     text_emb = model.encode([dialogue_text], normalize_embeddings=True)      # shape: (1, 384)
     anchor_embs = model.encode(zone_texts, normalize_embeddings=True)        # shape: (3, 384)
 
-    from sentence_transformers import util
     sims = util.cos_sim(text_emb, anchor_embs)[0]  # Tensor shape: (3,)
     # CRITICAL: util.cos_sim returns torch.Tensor — must call .numpy() for np.argmax
     best_idx = int(np.argmax(sims.numpy()))
@@ -165,7 +171,6 @@ def run_zone_matching(
             continue
 
         text_emb = model.encode([text], normalize_embeddings=True)   # shape: (1, 384)
-        from sentence_transformers import util
         sims = util.cos_sim(text_emb, anchor_embs)[0]                # Tensor shape: (3,)
         best_idx = int(np.argmax(sims.numpy()))
         zones.append(zone_keys[best_idx])

@@ -131,3 +131,151 @@ class TestEnforcePacingCurve:
         act1_avg = compute_act_avg_duration(result, "act1")
         act3_avg = compute_act_avg_duration(result, "act3")
         assert act1_avg > act3_avg, f"Pacing curve violated: act1={act1_avg:.2f}s, act3={act3_avg:.2f}s"
+
+
+# ============================================================
+# Phase 8 zone ordering tests (EORD-01, EORD-02, EORD-03)
+# ============================================================
+from typing import Optional
+from cinecut.manifest.schema import NarrativeZone
+
+
+def _make_zone_clip(
+    zone: Optional[NarrativeZone],
+    score: float,
+    start: float = 0.0,
+    end: float = 5.0,
+    act: str = "act1",
+) -> ClipEntry:
+    return ClipEntry(
+        source_start_s=start,
+        source_end_s=end,
+        beat_type="escalation_beat",
+        act=act,
+        transition="hard_cut",
+        money_shot_score=score,
+        narrative_zone=zone,
+    )
+
+
+class TestSortClipsByZone:
+    """EORD-01 and EORD-02: sort_clips_by_zone() — zone-first, score-descending within zone."""
+
+    def test_zone_order_beginning_before_escalation_before_climax(self):
+        """Clips in wrong zone order get sorted BEGINNING -> ESCALATION -> CLIMAX."""
+        from cinecut.assembly.ordering import sort_clips_by_zone
+        clips = [
+            _make_zone_clip(NarrativeZone.CLIMAX, 0.8),
+            _make_zone_clip(NarrativeZone.BEGINNING, 0.5),
+            _make_zone_clip(NarrativeZone.ESCALATION, 0.6),
+        ]
+        result = sort_clips_by_zone(clips)
+        zones = [c.narrative_zone for c in result]
+        assert zones == [NarrativeZone.BEGINNING, NarrativeZone.ESCALATION, NarrativeZone.CLIMAX]
+
+    def test_within_zone_score_descending(self):
+        """Within the same zone, higher money_shot_score comes first."""
+        from cinecut.assembly.ordering import sort_clips_by_zone
+        clips = [
+            _make_zone_clip(NarrativeZone.ESCALATION, 0.3),
+            _make_zone_clip(NarrativeZone.ESCALATION, 0.9),
+        ]
+        result = sort_clips_by_zone(clips)
+        assert result[0].money_shot_score == pytest.approx(0.9)
+        assert result[1].money_shot_score == pytest.approx(0.3)
+
+    def test_clips_without_zone_sorted_last(self):
+        """Clips with narrative_zone=None appear after all zone-assigned clips."""
+        from cinecut.assembly.ordering import sort_clips_by_zone
+        clips = [
+            _make_zone_clip(None, 0.9),
+            _make_zone_clip(NarrativeZone.BEGINNING, 0.5),
+            _make_zone_clip(NarrativeZone.CLIMAX, 0.7),
+        ]
+        result = sort_clips_by_zone(clips)
+        assert result[0].narrative_zone == NarrativeZone.BEGINNING
+        assert result[1].narrative_zone == NarrativeZone.CLIMAX
+        assert result[2].narrative_zone is None
+
+    def test_title_card_and_button_sorted_last(self):
+        """Clips with act=title_card or act=button and narrative_zone=None are last."""
+        from cinecut.assembly.ordering import sort_clips_by_zone
+        clips = [
+            ClipEntry(source_start_s=0.0, source_end_s=3.0, beat_type="breath", act="title_card",
+                      transition="fade_to_black", narrative_zone=None),
+            _make_zone_clip(NarrativeZone.CLIMAX, 0.8),
+            ClipEntry(source_start_s=1.0, source_end_s=4.0, beat_type="breath", act="button",
+                      transition="fade_to_black", narrative_zone=None),
+            _make_zone_clip(NarrativeZone.BEGINNING, 0.4),
+        ]
+        result = sort_clips_by_zone(clips)
+        # First two should be zone-assigned clips
+        assert result[0].narrative_zone is not None
+        assert result[1].narrative_zone is not None
+        # Last two should be None-zone clips
+        assert result[2].narrative_zone is None
+        assert result[3].narrative_zone is None
+
+    def test_empty_input_returns_empty(self):
+        """sort_clips_by_zone([]) returns []."""
+        from cinecut.assembly.ordering import sort_clips_by_zone
+        assert sort_clips_by_zone([]) == []
+
+
+class TestEnforceZonePacingCurve:
+    """EORD-03: enforce_zone_pacing_curve() trims CLIMAX zone clips to act3 targets."""
+
+    def test_climax_clips_trimmed_to_act3_target(self):
+        """CLIMAX zone clips averaging 10s get trimmed to near act3_avg_cut_s."""
+        from cinecut.assembly.ordering import enforce_zone_pacing_curve
+        profile = VIBE_PROFILES["action"]  # act3_avg_cut_s = 1.2
+        clips = [
+            _make_zone_clip(NarrativeZone.CLIMAX, 0.8, start=0.0, end=10.0),
+            _make_zone_clip(NarrativeZone.CLIMAX, 0.7, start=15.0, end=25.0),
+        ]
+        result = enforce_zone_pacing_curve(clips, profile)
+        for clip in (c for c in result if c.narrative_zone == NarrativeZone.CLIMAX):
+            duration = clip.source_end_s - clip.source_start_s
+            assert duration <= profile.act3_avg_cut_s * 1.5, (
+                f"CLIMAX clip not trimmed: {duration:.2f}s > {profile.act3_avg_cut_s * 1.5:.2f}s"
+            )
+
+    def test_beginning_clips_not_trimmed(self):
+        """BEGINNING zone clips are not trimmed regardless of length."""
+        from cinecut.assembly.ordering import enforce_zone_pacing_curve
+        profile = VIBE_PROFILES["action"]  # act3_avg_cut_s = 1.2
+        clips = [
+            _make_zone_clip(NarrativeZone.BEGINNING, 0.5, start=0.0, end=20.0),
+        ]
+        result = enforce_zone_pacing_curve(clips, profile)
+        beginning_clips = [c for c in result if c.narrative_zone == NarrativeZone.BEGINNING]
+        assert len(beginning_clips) == 1
+        assert beginning_clips[0].source_end_s == pytest.approx(20.0), (
+            "BEGINNING clip should not be trimmed"
+        )
+
+    def test_never_below_min_duration(self):
+        """After trimming, no CLIMAX clip duration falls below MIN_CLIP_DURATION_S (0.5s)."""
+        from cinecut.assembly.ordering import enforce_zone_pacing_curve, MIN_CLIP_DURATION_S
+        profile = VIBE_PROFILES["action"]  # act3_avg_cut_s = 1.2
+        clips = [
+            _make_zone_clip(NarrativeZone.CLIMAX, 0.9, start=0.0, end=10.0),
+        ]
+        result = enforce_zone_pacing_curve(clips, profile)
+        for clip in result:
+            duration = clip.source_end_s - clip.source_start_s
+            assert duration >= MIN_CLIP_DURATION_S, (
+                f"Clip trimmed below min duration: {duration:.2f}s < {MIN_CLIP_DURATION_S}s"
+            )
+
+    def test_no_trimming_when_within_threshold(self):
+        """CLIMAX clips already within act3_avg_cut_s * 1.5 are returned unchanged."""
+        from cinecut.assembly.ordering import enforce_zone_pacing_curve
+        profile = VIBE_PROFILES["action"]  # act3_avg_cut_s = 1.2, threshold = 1.8
+        clips = [
+            _make_zone_clip(NarrativeZone.CLIMAX, 0.7, start=0.0, end=1.5),  # 1.5s < 1.8
+        ]
+        result = enforce_zone_pacing_curve(clips, profile)
+        assert result[0].source_end_s == pytest.approx(1.5), (
+            "Clip within threshold should not be modified"
+        )
