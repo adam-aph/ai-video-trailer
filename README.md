@@ -294,6 +294,6 @@ With `--review`, you can edit this file directly:
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Apache-2.0 license — see [LICENSE](LICENSE).
 
 Music beds sourced from [Jamendo](https://www.jamendo.com) under Creative Commons licenses.
