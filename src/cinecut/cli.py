@@ -14,6 +14,7 @@ Phase 5 adds checkpoint-guarded resume (PIPE-04), 3-act assembly stage
 (EDIT-02, EDIT-03), and updated 7-stage pipeline numbering.
 """
 
+import json
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -267,9 +268,11 @@ def main(
                 dialogue_events = parse_subtitles(subtitle)
 
             # --- Stage 3/8: Keyframe extraction (PIPE-03) ---
+            _timestamps_cache = work_dir / "keyframe_timestamps.json"
+            subtitle_midpoints = [e.midpoint_s for e in dialogue_events]
+
             if not ckpt.is_stage_complete("keyframes"):
                 console.print(f"[bold]Stage 3/{TOTAL_STAGES}:[/bold] Extracting keyframes...")
-                subtitle_midpoints = [e.midpoint_s for e in dialogue_events]
 
                 with Progress(
                     SpinnerColumn(),
@@ -281,6 +284,7 @@ def main(
                 ) as progress:
                     ts_task = progress.add_task("Collecting timestamps (scene detection)...", total=None)
                     timestamps = collect_keyframe_timestamps(proxy_path, subtitle_midpoints)
+                    _timestamps_cache.write_text(json.dumps(timestamps), encoding="utf-8")
                     progress.update(ts_task, description=f"Collected {len(timestamps)} keyframe timestamps", completed=1, total=1)
 
                     kf_task = progress.add_task("Extracting frames...", total=len(timestamps))
@@ -296,9 +300,14 @@ def main(
                 save_checkpoint(ckpt, work_dir)
                 console.print(f"[green]Extracted {len(keyframe_records)} keyframes\n")
             else:
-                # Keyframe files are already in work_dir/keyframes/ — re-run extraction (idempotent)
-                console.print(f"[yellow]Resuming:[/] Stage 3 already complete — re-extracting keyframes for inference\n")
-                subtitle_midpoints = [e.midpoint_s for e in dialogue_events]
+                # Load cached timestamps — skip scene detection on resume
+                console.print(f"[yellow]Resuming:[/] Stage 3 already complete — loading cached timestamps\n")
+                if _timestamps_cache.exists():
+                    timestamps = json.loads(_timestamps_cache.read_text(encoding="utf-8"))
+                else:
+                    # Fallback: timestamps file missing (old work dir) — re-run scene detection
+                    timestamps = collect_keyframe_timestamps(proxy_path, subtitle_midpoints)
+                    _timestamps_cache.write_text(json.dumps(timestamps), encoding="utf-8")
                 with Progress(
                     SpinnerColumn(),
                     TextColumn("[progress.description]{task.description}"),
@@ -307,10 +316,6 @@ def main(
                     TimeElapsedColumn(),
                     console=console,
                 ) as progress:
-                    ts_task = progress.add_task("Collecting timestamps (scene detection)...", total=None)
-                    timestamps = collect_keyframe_timestamps(proxy_path, subtitle_midpoints)
-                    progress.update(ts_task, description=f"Collected {len(timestamps)} keyframe timestamps", completed=1, total=1)
-
                     kf_task = progress.add_task("Extracting frames...", total=len(timestamps))
                     keyframe_records = extract_all_keyframes(
                         proxy_path,
