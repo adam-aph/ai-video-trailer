@@ -27,6 +27,7 @@ from cinecut.ingestion.proxy import create_proxy
 from cinecut.ingestion.subtitles import parse_subtitles
 from cinecut.ingestion.keyframes import collect_keyframe_timestamps, extract_all_keyframes
 from cinecut.inference.engine import run_inference_stage
+from cinecut.inference.cache import load_cache, save_cache
 from cinecut.manifest.loader import load_manifest
 from cinecut.manifest.vibes import VIBE_PROFILES
 from cinecut.narrative.generator import run_narrative_stage
@@ -302,40 +303,58 @@ def main(
                         progress_callback=lambda: progress.advance(kf_task),
                     )
 
-            # --- Stage 4/7: LLaVA Inference (INFR-02) ---
-            # TODO: inference resume requires persisting SceneDescription results; deferred to v2
-            console.print(f"[bold]Stage 4/{TOTAL_STAGES}:[/bold] Running LLaVA inference on keyframes...")
-            inference_results = []
+            # --- Stage 4/7: LLaVA Inference (INFR-01, IINF-01, IINF-02) ---
+            console.print(f"[bold]Stage 4/{TOTAL_STAGES}:[/bold] LLaVA inference...")
+            cached_results = load_cache(video, work_dir)
 
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TextColumn("{task.completed}/{task.total}"),
-                TimeElapsedColumn(),
-                console=console,
-            ) as progress:
-                infer_task = progress.add_task(
-                    "Describing frames...", total=len(keyframe_records)
+            if cached_results is not None:
+                # IINF-01: cache hit — skip inference entirely
+                inference_results = cached_results
+                ckpt.cache_hit = True
+                cache_path = work_dir / f"{video.stem}.scenedesc.msgpack"
+                console.print(
+                    f"[yellow]Cache hit:[/] Loaded {len(inference_results)} SceneDescriptions "
+                    f"from [dim]{cache_path.name}[/dim] — LLaVA inference skipped\n"
                 )
+            else:
+                # Cache miss or invalidated (IINF-02) — cascade reset then run inference
+                # If source file changed (mtime/size differs), clear downstream stages
+                # so Stage 5 (narrative) doesn't run against stale keyframes (Research Pitfall 5)
+                for stale_stage in ("narrative", "assembly"):
+                    if stale_stage in ckpt.stages_complete:
+                        ckpt.stages_complete.remove(stale_stage)
+                        ckpt.manifest_path = None if stale_stage == "narrative" else ckpt.manifest_path
+                        ckpt.assembly_manifest_path = None if stale_stage == "assembly" else ckpt.assembly_manifest_path
 
-                def _progress_callback(current: int, total: int) -> None:
-                    progress.update(infer_task, completed=current)
+                ckpt.cache_hit = False
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TextColumn("{task.completed}/{task.total}"),
+                    TimeElapsedColumn(),
+                    console=console,
+                ) as progress:
+                    infer_task = progress.add_task(
+                        "Describing frames...", total=len(keyframe_records)
+                    )
 
-                inference_results = run_inference_stage(
-                    keyframe_records,
-                    model,
-                    mmproj,
-                    progress_callback=_progress_callback,
-                )
+                    def _progress_callback(current: int, total: int) -> None:
+                        progress.update(infer_task, completed=current)
+
+                    inference_results = run_inference_stage(
+                        keyframe_records,
+                        model,
+                        mmproj,
+                        progress_callback=_progress_callback,
+                    )
+
+                save_cache(inference_results, video, work_dir)
+                console.print(f"[green]Inference complete:[/] cache written\n")
 
             skipped = sum(1 for _, desc in inference_results if desc is None)
             ckpt.inference_complete = True
             save_checkpoint(ckpt, work_dir)
-            console.print(
-                f"[green]Inference complete:[/] {len(inference_results)} frames processed, "
-                f"{skipped} skipped\n"
-            )
 
             # --- Stage 5/7: Narrative beat extraction and manifest generation (NARR-02, NARR-03, EDIT-01) ---
             if not ckpt.is_stage_complete("narrative"):

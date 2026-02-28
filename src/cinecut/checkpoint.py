@@ -22,6 +22,7 @@ class PipelineCheckpoint:
     keyframe_count: Optional[int] = None
     dialogue_event_count: Optional[int] = None
     inference_complete: Optional[bool] = None
+    cache_hit: Optional[bool] = None
     manifest_path: Optional[str] = None
     assembly_manifest_path: Optional[str] = None
 
