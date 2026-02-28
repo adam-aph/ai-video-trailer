@@ -85,12 +85,12 @@ Plans:
   3. Running with `--vibe action` on a machine with no network produces a trailer without music and without aborting — log warns about missing music
   4. A deliberate 3-5s black silence segment is present at the Act 2-to-Act 3 boundary in the output
   5. Clip start points align to within one beat of the detected BPM grid; vibe-default BPM is used when detection returns 0 or an octave error
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 09-01: BPM detection and beat grid (assembly/bpm.py) — librosa beat_track, 0-BPM guard, octave correction, vibe-range clamping, beat-snap for clip start points
-- [ ] 09-02: Music bed (assembly/music.py) — Jamendo API v3 fetch with permanent per-vibe cache, graceful degradation on any failure, BpmGrid and MusicBed manifest models
-- [ ] 09-03: Silence segment insertion at Act 2-to-Act 3 boundary (assembly/ordering.py integration)
+- [ ] 09-01-PLAN.md — BPM detection and beat grid (assembly/bpm.py) + BpmGrid/MusicBed Pydantic manifest models (manifest/schema.py)
+- [ ] 09-02-PLAN.md — Music bed (assembly/music.py) — Jamendo API v3 fetch, permanent per-vibe cache, graceful degradation; pyproject.toml deps
+- [ ] 09-03-PLAN.md — Silence segment insertion (ordering.py), assemble_manifest wiring (__init__.py), Stage 7 in cli.py, unit tests
 
 ### Phase 10: SFX, VO, and Audio Mix
 **Goal**: Synthesized swoosh/sweep SFX mark every scene cut; protagonist VO lines are extracted from film audio and placed in Acts 1 and 2; all four audio stems (film audio, music, SFX, VO) are independently normalized and mixed with dynamic ducking — producing the complete sensory-layer trailer.
