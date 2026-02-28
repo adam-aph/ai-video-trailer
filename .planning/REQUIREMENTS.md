@@ -65,9 +65,9 @@ Requirements for v2.0 Structural & Sensory Overhaul. Each maps to a roadmap phas
 
 ### BPM Grid
 
-- [ ] **BPMG-01**: System detects music track BPM using librosa and generates a beat timestamp grid
-- [ ] **BPMG-02**: Clip start points snap to the nearest beat grid position (within ±1 beat tolerance)
-- [ ] **BPMG-03**: System falls back to vibe-default BPM when detection returns 0, half, or double tempo
+- [x] **BPMG-01**: System detects music track BPM using librosa and generates a beat timestamp grid
+- [x] **BPMG-02**: Clip start points snap to the nearest beat grid position (within ±1 beat tolerance)
+- [x] **BPMG-03**: System falls back to vibe-default BPM when detection returns 0, half, or double tempo
 
 ### Music Bed
 
@@ -129,9 +129,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | EORD-02 | Phase 8 | Complete |
 | EORD-03 | Phase 8 | Complete |
 | EORD-04 | Phase 9 | Pending |
-| BPMG-01 | Phase 9 | Pending |
-| BPMG-02 | Phase 9 | Pending |
-| BPMG-03 | Phase 9 | Pending |
+| BPMG-01 | Phase 9 | Complete |
+| BPMG-02 | Phase 9 | Complete |
+| BPMG-03 | Phase 9 | Complete |
 | MUSC-01 | Phase 9 | Complete |
 | MUSC-02 | Phase 9 | Complete |
 | MUSC-03 | Phase 9 | Complete |

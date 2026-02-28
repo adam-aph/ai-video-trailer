@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Structural & Sensory Overhaul
 status: unknown
-last_updated: "2026-02-28T17:27:52.193Z"
+last_updated: "2026-02-28T17:28:52.490Z"
 progress:
   total_phases: 5
   completed_phases: 3
   total_plans: 11
-  completed_plans: 6
+  completed_plans: 7
 ---
 
 # Project State
@@ -54,6 +54,7 @@ Progress: [████░░░░░░] 55% (v2.0 milestone — 6/11 plans co
 | 07 Structural Analysis | 2/3 | 7.5 min |
 | 08 Zone Matching | 2/2 | 15 min |
 | 09 Music Bed | 1/3 | 2 min |
+| Phase 09 P01 | 193 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -84,6 +85,8 @@ Recent decisions affecting v2.0 work:
 - [Phase 09-02]: audiodownload_allowed=True filter required before selecting Jamendo track (April 2022 API change — False results return 404)
 - [Phase 09-02]: soundfile>=0.12.1 pinned for MP3 support via bundled libsndfile 1.1.0+; without it librosa.load() on .mp3 raises LibsndfileError
 - [Phase 09-02]: MusicBed runtime dataclass intentionally separate from manifest/schema.py MusicBed Pydantic model; Plan 03 converts between them
+- [Phase 09-01]: BpmGrid exists in two forms: assembly/bpm.py dataclass (carries full beat_times_s list for computation) and manifest/schema.py Pydantic model (stores only bpm+beat_count+source for JSON manifest). No cross-import between packages.
+- [Phase 09-01]: resolve_bpm() uses 0.7x vibe_min threshold for half-tempo guard and 1.4x vibe_max for double-tempo guard — matches RESEARCH.md Pattern 2 tolerances
 
 ### Pending Todos
 
