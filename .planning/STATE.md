@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Structural & Sensory Overhaul
 status: unknown
-last_updated: "2026-02-28T14:01:31.716Z"
+last_updated: "2026-02-28T14:22:26Z"
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 11
-  completed_plans: 3
+  completed_plans: 4
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-28)
 
 **Core value:** Given a feature film and its subtitle file, produce a narratively coherent, vibe-styled trailer that a human editor would be proud to show.
-**Current focus:** v2.0 Phase 7 — Structural Analysis (Plans 01+02 complete, Plan 03 next)
+**Current focus:** v2.0 Phase 8 — Zone Matching and Non-Linear Ordering (Plan 01 complete, Plan 02 next)
 
 ## Current Position
 
-Phase: 7 of 10 (Structural Analysis) — In Progress
-Plan: 2 of 3 in current phase — COMPLETE
-Status: In progress (Phase 7 Plans 01+02 done, Phase 7 Plan 03 next)
-Last activity: 2026-02-28 — Phase 7 Plan 02 executed — structural analysis, manifest v2.0, Stage 5 gate
+Phase: 8 of 10 (Zone Matching and Non-Linear Ordering) — In Progress
+Plan: 1 of 2 in current phase — COMPLETE
+Status: In progress (Phase 8 Plan 01 done, Phase 8 Plan 02 next)
+Last activity: 2026-02-28 — Phase 8 Plan 01 executed — NarrativeZone enum, zone_matching module, 14 unit tests
 
-Progress: [███░░░░░░░] 27% (v2.0 milestone — 3/11 plans complete)
+Progress: [████░░░░░░] 36% (v2.0 milestone — 4/11 plans complete)
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Progress: [███░░░░░░░] 27% (v2.0 milestone — 3/11 plans co
 |-------|-------|----------|
 | 06 Inference Persistence | 1 | 3 min |
 | 07 Structural Analysis | 2/3 | 7.5 min |
+| 08 Zone Matching | 1/2 | 18 min |
 
 ## Accumulated Context
 
@@ -75,6 +76,8 @@ Recent decisions affecting v2.0 work:
 - [Phase 07-02]: _clamp_anchors_to_chunk uses +-10s tolerance window to prevent hallucinated LLM timestamps from polluting median aggregation
 - [Phase 07-02]: Inline import of StructuralAnchors in structural.py avoids circular import between inference and manifest packages
 - [Phase 07-02]: statistics.median aggregation across subtitle chunks — single valid chunk passes through, multiple chunks produce true median for robustness
+- [Phase 08-01]: util exposed as module-level None attribute in zone_matching.py — set by _load_model() — so tests can patch without sentence-transformers installed
+- [Phase 08-01]: NarrativeZone(str, Enum) ensures Pydantic v2 serializes as plain string; ClipEntry.narrative_zone defaults None for backward compat with v1.0 manifests
 
 ### Pending Todos
 
@@ -90,5 +93,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Phase 7 Plan 02 complete — structural analysis pipeline, manifest v2.0, Stage 5 gate, 20 unit tests (153 total passing)
+Stopped at: Phase 8 Plan 01 complete — NarrativeZone enum, zone_matching module, 14 zone tests + 9 forward-compatible zone ordering stubs (153+14 = 167 total passing)
 Resume file: None

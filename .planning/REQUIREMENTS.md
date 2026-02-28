@@ -53,7 +53,7 @@ Requirements for v2.0 Structural & Sensory Overhaul. Each maps to a roadmap phas
 ### Structural Analysis
 
 - [x] **STRC-01**: Text LLM identifies three narrative anchor timestamps (BEGIN_T, ESCALATION_T, CLIMAX_T) from subtitle corpus, processing in chunks of 50-100 events
-- [ ] **STRC-02**: System assigns each extracted clip to a narrative zone: BEGINNING, ESCALATION, or CLIMAX
+- [x] **STRC-02**: System assigns each extracted clip to a narrative zone: BEGINNING, ESCALATION, or CLIMAX
 - [x] **STRC-03**: Zone assignments are stored in TRAILER_MANIFEST.json v2.0 schema alongside existing clip fields
 
 ### Edit Ordering
@@ -123,7 +123,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | IINF-03 | Phase 7 | Complete |
 | IINF-04 | Phase 7 | Complete |
 | STRC-01 | Phase 7 | Complete |
-| STRC-02 | Phase 8 | Pending |
+| STRC-02 | Phase 8 | Complete |
 | STRC-03 | Phase 7 | Complete |
 | EORD-01 | Phase 8 | Pending |
 | EORD-02 | Phase 8 | Pending |
