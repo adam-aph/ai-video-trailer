@@ -8,7 +8,8 @@ GPU_LOCK: threading.Lock = threading.Lock()
 
 from cinecut.inference.engine import LlavaEngine  # noqa: E402
 from cinecut.inference.models import SceneDescription, SCENE_DESCRIPTION_SCHEMA  # noqa: E402
-from cinecut.inference.vram import check_vram_free_mib, VRAM_MINIMUM_MIB  # noqa: E402
+from cinecut.inference.vram import check_vram_free_mib, VRAM_MINIMUM_MIB, wait_for_vram  # noqa: E402
+from cinecut.inference.text_engine import TextEngine, get_models_dir, MISTRAL_GGUF_NAME  # noqa: E402
 
 __all__ = [
     "GPU_LOCK",
@@ -17,4 +18,8 @@ __all__ = [
     "SCENE_DESCRIPTION_SCHEMA",
     "check_vram_free_mib",
     "VRAM_MINIMUM_MIB",
+    "wait_for_vram",
+    "TextEngine",
+    "get_models_dir",
+    "MISTRAL_GGUF_NAME",
 ]

@@ -47,3 +47,38 @@ def assert_vram_available() -> None:
     VRAM_MINIMUM_MIB.
     """
     check_vram_free_mib()
+
+
+def _check_vram_free_mib_raw() -> int:
+    """Query free VRAM without raising VramError. Returns 0 on any failure."""
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, check=True, timeout=10,
+        )
+        return int(result.stdout.strip().splitlines()[0])
+    except Exception:
+        return 0
+
+
+def wait_for_vram(
+    min_free_mib: int = VRAM_MINIMUM_MIB,
+    poll_interval_s: float = 2.0,
+    timeout_s: float = 60.0,
+) -> None:
+    """Poll nvidia-smi until at least min_free_mib MiB is free.
+
+    Called between LlavaEngine exit and TextEngine entry to wait for VRAM
+    release after llama-server process termination (OS reclaims pages async).
+    Raises VramError if VRAM does not free within timeout_s.
+    """
+    import time
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        free_mib = _check_vram_free_mib_raw()
+        if free_mib >= min_free_mib:
+            return
+        time.sleep(poll_interval_s)
+    raise VramError(
+        f"VRAM did not reach {min_free_mib} MiB free within {timeout_s}s after model swap"
+    )
