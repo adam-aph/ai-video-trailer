@@ -77,9 +77,9 @@ Requirements for v2.0 Structural & Sensory Overhaul. Each maps to a roadmap phas
 
 ### Audio Mix
 
-- [ ] **AMIX-01**: Music bed automatically ducks during protagonist VO and high-emotion shots via FFmpeg sidechaincompress
-- [ ] **AMIX-02**: All audio stems (film audio, music, SFX, VO) are normalised independently before mixing; `amix normalize=0` is used throughout
-- [ ] **AMIX-03**: All audio sources are resampled to 48000Hz stereo before mixing
+- [x] **AMIX-01**: Music bed automatically ducks during protagonist VO and high-emotion shots via FFmpeg sidechaincompress
+- [x] **AMIX-02**: All audio stems (film audio, music, SFX, VO) are normalised independently before mixing; `amix normalize=0` is used throughout
+- [x] **AMIX-03**: All audio sources are resampled to 48000Hz stereo before mixing
 
 ### SFX
 
@@ -135,9 +135,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MUSC-01 | Phase 9 | Complete |
 | MUSC-02 | Phase 9 | Complete |
 | MUSC-03 | Phase 9 | Complete |
-| AMIX-01 | Phase 10 | Pending |
-| AMIX-02 | Phase 10 | Pending |
-| AMIX-03 | Phase 10 | Pending |
+| AMIX-01 | Phase 10 | Complete |
+| AMIX-02 | Phase 10 | Complete |
+| AMIX-03 | Phase 10 | Complete |
 | SFXL-01 | Phase 10 | Complete |
 | SFXL-02 | Phase 10 | Complete |
 | SFXL-03 | Phase 10 | Complete |

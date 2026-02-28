@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Structural & Sensory Overhaul
 status: unknown
-last_updated: "2026-02-28T17:53:20.368Z"
+last_updated: "2026-02-28T18:10:28.263Z"
 progress:
   total_phases: 5
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 11
-  completed_plans: 10
+  completed_plans: 11
 ---
 
 # Project State
@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-02-28)
 
 ## Current Position
 
-Phase: 10 of 10 (SFX, VO, and Audio Mix) — In Progress
-Plan: 2 of 3 in current phase — complete (plan 3 remaining)
-Status: Phase 10 plan 2 complete — vo_extract.py protagonist identification + VO extraction, 199 tests pass
-Last activity: 2026-02-28 — Phase 10 Plan 02 executed — identify_protagonist(), extract_vo_clips(), VoClip; pysubs2 Counter; output-seeking FFmpeg; 0.8s minimum; Acts 1+2 only
+Phase: 10 of 10 (SFX, VO, and Audio Mix) — COMPLETE
+Plan: 3 of 3 in current phase — complete
+Status: Phase 10 COMPLETE — audio_mix.py four-stem mix + pipeline Pass 3+4 wired; 206 tests pass; v2.0 milestone DONE
+Last activity: 2026-02-28 — Phase 10 Plan 03 executed — mix_four_stems(), sidechaincompress ducking, amix normalize=0, conform_manifest() Pass 3+4, 7 new unit tests
 
-Progress: [███████░░░] 82% (v2.0 milestone — 10/11 plans complete)
+Progress: [██████████] 100% (v2.0 milestone — 11/11 plans complete)
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Progress: [███████░░░] 82% (v2.0 milestone — 10/11 plans c
 | Phase 09 P03 | 17 | 2 tasks | 6 files |
 | Phase 10 P01 | 118 | 1 tasks | 1 files |
 | Phase 10 P02 | 2 | 1 tasks | 1 files |
+| Phase 10 P03 | 643 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -98,6 +99,10 @@ Recent decisions affecting v2.0 work:
 - [Phase 10]: identify_protagonist returns None for SRT files — caller handles gracefully by returning []
 - [Phase 10]: Candidate selection uses longest-duration events first — favours intelligible complete utterances
 - [Phase 10]: 0.8s minimum enforced via constant BEFORE FFmpeg call — avoids spawning processes for inaudible clips
+- [Phase 10]: amix normalize=0 mandatory throughout — normalize=1 destroys sidechain ducking ratios (AMIX-01)
+- [Phase 10]: Stem-level loudnorm at -16 LUFS before mixing — allows amix weight ratios to hold correctly
+- [Phase 10]: Three-stem fallback (film+SFX+VO) when music_bed_path absent — MUSC-03 graceful degradation
+- [Phase 10]: subtitle_path: Path | None = None added to conform_manifest() — backward-compatible new parameter
 
 ### Pending Todos
 
@@ -113,5 +118,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Completed 10-02-PLAN.md — vo_extract.py protagonist VO extraction; identify_protagonist(), extract_vo_clips(), VoClip; 199 tests pass
+Stopped at: Completed 10-03-PLAN.md — audio_mix.py four-stem mix; conform_manifest() Pass 3+4; 7 unit tests; 206 total tests pass; v2.0 milestone COMPLETE
 Resume file: None
