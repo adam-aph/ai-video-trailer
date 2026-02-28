@@ -40,10 +40,10 @@ See `.planning/milestones/v1.0-ROADMAP.md` for full phase details.
   1. User can resume a failed pipeline run and Stage 4 (LLaVA inference) is skipped — Rich output confirms cache hit
   2. Cache is automatically invalidated and inference re-runs when the source file has changed (different mtime or size)
   3. A completed run produces a `.scenedesc.msgpack` cache file alongside the checkpoint directory
-**Plans**: TBD
+**Plans**: 1 plan
 
 Plans:
-- [ ] 06-01: SceneDescription cache (inference/cache.py) with msgpack persistence, content-hash invalidation, and Stage 5 checkpoint guard
+- [ ] 06-01-PLAN.md — msgpack SceneDescription cache (inference/cache.py), Stage 4 CLI guard, cascade checkpoint reset, unit tests
 
 ### Phase 7: Structural Analysis
 **Goal**: A text LLM (Mistral 7B) reads the subtitle corpus and identifies three narrative anchor timestamps (BEGIN_T, ESCALATION_T, CLIMAX_T) that drive all zone-based features downstream. Models directory is configurable. Heuristic fallback covers no-GGUF environments.
