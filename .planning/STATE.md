@@ -1,31 +1,31 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: MVP
-status: complete
-last_updated: "2026-02-27T00:15:27.129Z"
+milestone: v2.0
+milestone_name: Structural & Sensory Overhaul
+status: planning
+last_updated: "2026-02-28T00:00:00.000Z"
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 17
-  completed_plans: 17
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-27)
+See: .planning/PROJECT.md (updated 2026-02-28)
 
 **Core value:** Given a feature film and its subtitle file, produce a narratively coherent, vibe-styled trailer that a human editor would be proud to show.
-**Current focus:** v1.0 milestone archived. Planning next milestone (/gsd:new-milestone).
+**Current focus:** v2.0 milestone — defining requirements.
 
 ## Current Position
 
-Phase: 5 of 5 (Trailer Assembly and End-to-End Pipeline) -- COMPLETE
-Plan: 4 of 4 in current phase -- COMPLETE
-Status: Complete
-Last activity: 2026-02-27 -- Completed 05-04: human-verified acceptance gate, 119 tests passing, Phase 5 and v1.0 milestone complete
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-02-28 — Milestone v2.0 started
 
 Progress: [##########] 100% (Phase 1) | [##########] 100% (Phase 2) | [##########] 100% (Phase 3) | [##########] 100% (Phase 4) | [##########] 100% (Phase 5)
 

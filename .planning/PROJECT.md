@@ -4,6 +4,19 @@
 
 A Python 3.10+ CLI tool that performs AI-driven narrative extraction from full-length feature films to generate a stylized ~2-minute trailer based on a user-defined "Vibe Profile." The system runs a 7-stage pipeline: analysis proxy creation → hybrid keyframe extraction → subtitle parsing → LLaVA/llama-server multimodal inference → narrative beat classification and manifest generation → 3-act assembly with pacing curves → high-bitrate FFmpeg conform against the original source file. No cloud dependencies — everything runs locally on a Quadro K6000 with CUDA 11.4. Shipped v1.0 with 4,822 LOC Python, 119 unit tests, and all 24 v1 requirements complete.
 
+## Current Milestone: v2.0 Structural & Sensory Overhaul
+
+**Goal:** Transform the flat chronological highlight reel into a dramatically structured, sonically layered trailer — non-linear scene ordering, BPM-driven edit rhythm, three-act arc, music bed, synthesized transition SFX, and protagonist VO extracted from film audio.
+
+**Target features:**
+- Two-stage LLM pipeline: text-only structural analysis (BEGIN_T/ESCALATION_T/CLIMAX_T) → scene-to-zone matching
+- Non-linear scene ordering by semantic zone, not film chronology
+- BPM grid / beat map driving cut timing per act
+- Music bed per vibe sourced from royalty-free archive (auto-downloaded on first use)
+- Transition SFX synthesized via FFmpeg/SoX (no external SFX files)
+- Silence/breathing room segments as deliberate editorial tool
+- Hero character VO extracted from film audio at protagonist dialogue timestamps
+
 ## Core Value
 
 Given a feature film and its subtitle file, produce a narratively coherent, vibe-styled trailer that a human editor would be proud to show — technically clean output with a real beginning, escalation, and climax arc.
@@ -29,8 +42,14 @@ Given a feature film and its subtitle file, produce a narratively coherent, vibe
 
 ### Active
 
-- [ ] Stage-based checkpoint resume loses inference results on resume — SceneDescription persistence deferred to v2
-- [ ] No subtitle-less input mode (graceful degradation to visual-only) — tracked as INPUT-01
+- [ ] Two-stage LLM pipeline: text structural analysis + scene-zone matching — v2.0
+- [ ] Non-linear scene ordering by semantic zone (not film chronology) — v2.0
+- [ ] BPM-driven edit pacing grid with per-act timing curves — v2.0
+- [ ] Music bed per vibe (royalty-free, auto-downloaded) with dynamic ducking — v2.0
+- [ ] Transition SFX synthesized via FFmpeg/SoX — v2.0
+- [ ] Silence/breathing room segments as explicit editorial tool — v2.0
+- [ ] Protagonist VO extracted from film audio at dialogue timestamps — v2.0
+- [ ] SceneDescription persistence so pipeline resume skips inference re-run — v2.0
 
 ### Out of Scope
 
@@ -81,4 +100,4 @@ Given a feature film and its subtitle file, produce a narratively coherent, vibe
 | title_card and button as pre-encoded MP4 files (FFmpeg lavfi) | ClipEntry objects would extract first 5s of film as fake segments | ✓ Good — lavfi black segment is correct architecture |
 
 ---
-*Last updated: 2026-02-27 after v1.0 milestone*
+*Last updated: 2026-02-28 after v2.0 milestone start*
