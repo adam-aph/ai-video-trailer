@@ -14,6 +14,8 @@ from pathlib import Path
 from cinecut.manifest.schema import TrailerManifest
 from cinecut.manifest.vibes import VIBE_PROFILES
 from cinecut.conform.luts import ensure_luts
+from cinecut.conform.sfx import synthesize_sfx_files, apply_sfx_to_timeline
+from cinecut.conform.audio_mix import mix_four_stems
 from cinecut.errors import ConformError
 
 # Short clips below this duration skip two-pass loudnorm (Act 3 montage clips 1.2-1.8s)
@@ -205,8 +207,14 @@ def conform_manifest(
     extra_clip_paths: list[Path] | None = None,
     inject_after_clip: int | None = None,
     inject_paths: list[Path] | None = None,
+    subtitle_path: Path | None = None,
 ) -> Path:
-    """Orchestrate full conform: extract+grade each clip, then concatenate.
+    """Orchestrate full conform: extract+grade each clip, concatenate, then audio mix.
+
+    Pass 1: extract_and_grade_clip() x N clips (LUT grading + loudnorm per clip)
+    Pass 2: concatenate_clips() -> pass2_concat_path (video track assembled)
+    Pass 3: synthesize_sfx_files() + apply_sfx_to_timeline() + extract_vo_clips()
+    Pass 4: mix_four_stems() -> trailer_final.mp4 (four-stem audio mix)
 
     Args:
         manifest: Validated TrailerManifest with clips to extract.
@@ -220,9 +228,11 @@ def conform_manifest(
             Used for EORD-04 silence segment at the ESCALATION->CLIMAX boundary.
         inject_paths: Pre-encoded clip paths to inject at inject_after_clip position.
             Ignored if inject_after_clip is None.
+        subtitle_path: Path to source film subtitle file (.ass or .srt) for VO
+            extraction. None = skip VO (backward-compatible).
 
     Returns:
-        Path to the final trailer MP4.
+        Path to the final trailer MP4 (trailer_final.mp4 from Pass 4).
 
     Raises:
         ConformError: If any FFmpeg operation fails.
@@ -264,8 +274,46 @@ def conform_manifest(
     if extra_clip_paths:
         clip_output_paths.extend(extra_clip_paths)
 
-    # Build final output path and concatenate
-    final_output_path = make_output_path(source, manifest.vibe)
-    concatenate_clips(clip_output_paths, final_output_path)
+    # Build Pass 2 concat output path and concatenate
+    pass2_concat_path = make_output_path(source, manifest.vibe)
+    concatenate_clips(clip_output_paths, pass2_concat_path)
+
+    # ------------------------------------------------------------------
+    # Pass 3: SFX synthesis + VO extraction
+    # ------------------------------------------------------------------
+    # Compute total concat duration for SFX positioning (sum of clip durations)
+    concat_duration_s = sum(
+        c.source_end_s - c.source_start_s for c in manifest.clips
+    )
+
+    # Synthesize SFX WAV tiers (idempotent — skips if files already exist)
+    sfx_hard, sfx_boundary = synthesize_sfx_files(work_dir)
+
+    # Overlay SFX at scene-cut positions
+    sfx_mix = apply_sfx_to_timeline(
+        manifest, sfx_hard, sfx_boundary, work_dir, concat_duration_s
+    )
+
+    # Extract protagonist VO clips (skip if no subtitle path provided)
+    vo_clips: list = []
+    if subtitle_path is not None:
+        from cinecut.conform.vo_extract import extract_vo_clips
+        vo_clips = extract_vo_clips(manifest, source, subtitle_path, work_dir)
+
+    # ------------------------------------------------------------------
+    # Pass 4: Four-stem audio mix -> trailer_final.mp4
+    # ------------------------------------------------------------------
+    # Get music bed path from manifest (None if Phase 9 unavailable)
+    music_bed_path: Path | None = None
+    if manifest.music_bed is not None:
+        music_bed_path = Path(manifest.music_bed.local_path)
+
+    final_output_path = mix_four_stems(
+        concat_path=pass2_concat_path,
+        sfx_mix=sfx_mix,
+        vo_clips=vo_clips,
+        music_bed_path=music_bed_path,
+        work_dir=work_dir,
+    )
 
     return final_output_path
