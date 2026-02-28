@@ -54,11 +54,11 @@ Plans:
   2. Setting `CINECUT_MODELS_DIR=/custom/path` causes the pipeline to load all model files from that directory instead of `~/models`
   3. When the Mistral GGUF is absent, the pipeline continues using the 5%/45%/80% runtime heuristic fallback — no abort, log message explains fallback
   4. Manifest schema version field reads "2.0" and includes `structural_anchors` block
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 07-01: TextEngine context manager (inference/text_engine.py) with llama-server port 8090, VRAM polling between model swaps, and CINECUT_MODELS_DIR support
-- [ ] 07-02: Structural analysis (inference/structural.py) — subtitle chunking at 50-100 events, StructuralAnchors extraction, heuristic fallback, manifest v2.0 schema bump
+- [ ] 07-01-PLAN.md — TextEngine context manager (inference/text_engine.py), wait_for_vram polling, get_models_dir(), cli.py model path migration
+- [ ] 07-02-PLAN.md — Structural analysis (inference/structural.py), analyze_chunk on TextEngine, StructuralAnchors schema, Stage 5 in cli.py, unit tests
 
 ### Phase 8: Zone Matching and Non-Linear Ordering
 **Goal**: Every extracted clip is assigned to BEGINNING, ESCALATION, or CLIMAX using sentence-transformers cosine similarity, then assembled in zone-first order ranked by emotional signal — replacing film-chronology ordering as the core narrative claim of v2.0.
