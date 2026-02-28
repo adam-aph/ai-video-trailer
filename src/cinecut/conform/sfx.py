@@ -80,7 +80,7 @@ def synthesize_sfx_files(work_dir: Path) -> tuple[Path, Path]:
     # slope = (2000 - 200) / (2 * 1.2) = 750 Hz/s
     # Gaussian envelope: 0.5 * (1 - exp(-2*t)) * exp(-0.5 * pow(t-0.6, 2) / 0.15)
     # expression: 0.5*(1-exp(-2*t))*exp(-0.5*pow(t-0.6,2)/0.15)*sin(2*PI*(200+750*t)*t)
-    boundary_expr = "0.5*(1-exp(-2*t))*exp(-0.5*pow(t-0.6,2)/0.15)*sin(2*PI*(200+750*t)*t)"
+    boundary_expr = "0.5*(1-exp(-2*t))*exp(-0.5*(t-0.6)*(t-0.6)/0.15)*sin(2*PI*(200+750*t)*t)"
     boundary_cmd = [
         "ffmpeg", "-y",
         "-f", "lavfi",
