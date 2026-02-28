@@ -1,5 +1,5 @@
 """3-act clip ordering and pacing curve enforcement for trailer assembly."""
-from cinecut.manifest.schema import ClipEntry, TrailerManifest
+from cinecut.manifest.schema import ClipEntry, NarrativeZone, TrailerManifest
 from cinecut.manifest.vibes import VibeProfile
 
 # Canonical act sequence for a trailer.
@@ -15,6 +15,14 @@ ACT_ORDER = [
 
 MIN_CLIP_DURATION_S = 0.5  # Never trim below 0.5s to avoid empty clips
 
+# Zone ordering priority for zone-first assembly (EORD-01).
+# title_card and button clips have narrative_zone=None — they fall to priority 999.
+ZONE_ORDER: dict[NarrativeZone, int] = {
+    NarrativeZone.BEGINNING: 0,
+    NarrativeZone.ESCALATION: 1,
+    NarrativeZone.CLIMAX: 2,
+}
+
 
 def sort_clips_by_act(clips: list[ClipEntry]) -> list[ClipEntry]:
     """Sort clips into canonical 3-act trailer order.
@@ -26,6 +34,27 @@ def sort_clips_by_act(clips: list[ClipEntry]) -> list[ClipEntry]:
     return sorted(
         clips,
         key=lambda c: (act_priority.get(c.act, 999), c.source_start_s),
+    )
+
+
+def sort_clips_by_zone(clips: list[ClipEntry]) -> list[ClipEntry]:
+    """Sort clips into zone-first order: BEGINNING → ESCALATION → CLIMAX (EORD-01).
+
+    Within each zone, sort by money_shot_score descending (EORD-02).
+    Clips with narrative_zone=None (title_card, button, or unassigned) sort last.
+
+    Replaces sort_clips_by_act() as the primary ordering function for v2.0 pipeline.
+    sort_clips_by_act() is preserved for backward compatibility and tests.
+
+    Zone-first ordering is the core narrative claim of v2.0:
+      trailer arc = BEGINNING → ESCALATION → CLIMAX, NOT film chronology.
+    """
+    return sorted(
+        clips,
+        key=lambda c: (
+            ZONE_ORDER.get(c.narrative_zone, 999) if c.narrative_zone is not None else 999,
+            -(c.money_shot_score or 0.0),    # score descending within zone (negate for ascending sort)
+        ),
     )
 
 
@@ -60,4 +89,45 @@ def enforce_pacing_curve(
             if duration > target * 1.5:
                 new_end = clip.source_start_s + max(target, MIN_CLIP_DURATION_S)
                 result[i] = clip.model_copy(update={"source_end_s": new_end})
+    return result
+
+
+def enforce_zone_pacing_curve(
+    clips: list[ClipEntry],
+    profile: VibeProfile,
+) -> list[ClipEntry]:
+    """Trim CLIMAX zone clips to act3 duration targets (EORD-03).
+
+    BEGINNING zone clips use act1_avg_cut_s — long cuts are fine for setup.
+    ESCALATION zone clips use act2_avg_cut_s (enforced implicitly via clip window).
+    CLIMAX zone clips are trimmed if average exceeds profile.act3_avg_cut_s * 1.5.
+
+    Clips with narrative_zone=None are left untouched (treated as ESCALATION duration).
+    Uses model_copy() (Pydantic v2) — same pattern as enforce_pacing_curve.
+    Minimum clip duration: MIN_CLIP_DURATION_S (0.5s) — never trim below this.
+
+    Does NOT modify BEGINNING zone clips — act1 targets allow longer cuts (4-8s range
+    per EORD-03). Does NOT modify ESCALATION clips — act2 targets applied at window
+    computation time in generator.py.
+    """
+    result = list(clips)
+
+    # Compute CLIMAX zone average duration
+    climax_clips = [c for c in result if c.narrative_zone == NarrativeZone.CLIMAX]
+    if not climax_clips:
+        return result  # No CLIMAX clips — nothing to enforce
+
+    climax_avg = sum(c.source_end_s - c.source_start_s for c in climax_clips) / len(climax_clips)
+    if climax_avg <= profile.act3_avg_cut_s * 1.5:
+        return result  # Already within acceptable range
+
+    # Trim CLIMAX clips that exceed 1.5x target
+    target = profile.act3_avg_cut_s
+    for i, clip in enumerate(result):
+        if clip.narrative_zone == NarrativeZone.CLIMAX:
+            duration = clip.source_end_s - clip.source_start_s
+            if duration > target * 1.5:
+                new_end = clip.source_start_s + max(target, MIN_CLIP_DURATION_S)
+                result[i] = clip.model_copy(update={"source_end_s": new_end})
+
     return result
