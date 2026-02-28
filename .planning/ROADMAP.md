@@ -69,11 +69,11 @@ Plans:
   2. Within each zone, clips are ordered by descending emotional signal score (not source timestamp)
   3. Act 1 clips are visibly longer-cut than Act 3 clips — montage density increases through the trailer
   4. Each clip in the manifest carries a `narrative_zone` field (BEGINNING, ESCALATION, or CLIMAX)
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 08-01: Zone matching (narrative/zone_matching.py) — sentence-transformers all-MiniLM-L6-v2 CPU-only, NarrativeZone enum, ClipEntry narrative_zone field, Stage 6 checkpoint
-- [ ] 08-02: Zone-first clip ordering in narrative/generator.py — zone-first then emotional-signal sort, pacing curve enforcement per zone density targets
+- [ ] 08-01-PLAN.md — NarrativeZone enum + ClipEntry.narrative_zone in schema.py; narrative/zone_matching.py with CPU sentence-transformers cosine similarity; unit tests
+- [ ] 08-02-PLAN.md — sort_clips_by_zone + enforce_zone_pacing_curve in ordering.py; run_zone_matching wired into generator.py; zone-first manifest assembly
 
 ### Phase 9: BPM Grid and Music Bed
 **Goal**: A CC-licensed music track is auto-selected per vibe from Jamendo and cached permanently; librosa detects BPM from the track and generates a beat grid that snaps clip start points to the nearest beat. Pipeline continues without music on any API or detection failure.
