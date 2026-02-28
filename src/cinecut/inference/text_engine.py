@@ -162,3 +162,41 @@ class TextEngine:
         if self._log_file is not None:
             self._log_file.close()
             self._log_file = None
+
+    def analyze_chunk(self, chunk_text: str, timeout_s: float = 60.0) -> dict | None:
+        """Submit one subtitle chunk for structural anchor extraction.
+
+        Returns dict with begin_t, escalation_t, climax_t (floats, absolute seconds)
+        or None on any failure. Never raises — pipeline continues if chunks fail.
+        Uses json_schema constrained generation (same pattern as LlavaEngine.describe_frame).
+        """
+        from cinecut.inference.structural import STRUCTURAL_ANCHORS_SCHEMA
+
+        payload = {
+            "temperature": 0.1,
+            "max_tokens": 128,
+            "json_schema": STRUCTURAL_ANCHORS_SCHEMA,
+            "messages": [{
+                "role": "user",
+                "content": (
+                    "You are a film narrative analyst. Given the subtitle transcript below, "
+                    "identify the three narrative anchor timestamps (in seconds):\n"
+                    "- begin_t: when the story truly begins (inciting incident or first conflict)\n"
+                    "- escalation_t: when tension escalates significantly\n"
+                    "- climax_t: when the climax or peak emotional moment occurs\n\n"
+                    "Respond with a JSON object only.\n\n"
+                    f"TRANSCRIPT:\n{chunk_text}"
+                ),
+            }],
+        }
+        try:
+            r = requests.post(
+                f"{self.base_url}/v1/chat/completions",
+                json=payload,
+                timeout=timeout_s,
+            )
+            r.raise_for_status()
+            content = r.json()["choices"][0]["message"]["content"]
+            return json.loads(content.strip())
+        except (requests.RequestException, KeyError, IndexError, json.JSONDecodeError):
+            return None
