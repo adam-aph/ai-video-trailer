@@ -71,9 +71,9 @@ Requirements for v2.0 Structural & Sensory Overhaul. Each maps to a roadmap phas
 
 ### Music Bed
 
-- [ ] **MUSC-01**: System selects a CC-licensed music track per vibe from the Jamendo API v3
-- [ ] **MUSC-02**: Downloaded tracks are permanently cached per vibe at `~/.cinecut/music/`; Jamendo API is never called if a cached track exists
-- [ ] **MUSC-03**: Pipeline continues without music (no abort) when Jamendo API is unavailable or returns an error
+- [x] **MUSC-01**: System selects a CC-licensed music track per vibe from the Jamendo API v3
+- [x] **MUSC-02**: Downloaded tracks are permanently cached per vibe at `~/.cinecut/music/`; Jamendo API is never called if a cached track exists
+- [x] **MUSC-03**: Pipeline continues without music (no abort) when Jamendo API is unavailable or returns an error
 
 ### Audio Mix
 
@@ -132,9 +132,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | BPMG-01 | Phase 9 | Pending |
 | BPMG-02 | Phase 9 | Pending |
 | BPMG-03 | Phase 9 | Pending |
-| MUSC-01 | Phase 9 | Pending |
-| MUSC-02 | Phase 9 | Pending |
-| MUSC-03 | Phase 9 | Pending |
+| MUSC-01 | Phase 9 | Complete |
+| MUSC-02 | Phase 9 | Complete |
+| MUSC-03 | Phase 9 | Complete |
 | AMIX-01 | Phase 10 | Pending |
 | AMIX-02 | Phase 10 | Pending |
 | AMIX-03 | Phase 10 | Pending |

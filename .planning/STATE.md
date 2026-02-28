@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Structural & Sensory Overhaul
 status: unknown
-last_updated: "2026-02-28T17:15:00Z"
+last_updated: "2026-02-28T17:27:52.193Z"
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 11
-  completed_plans: 5
+  completed_plans: 6
 ---
 
 # Project State
@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-02-28)
 
 ## Current Position
 
-Phase: 8 of 10 (Zone Matching and Non-Linear Ordering) — COMPLETE
-Plan: 2 of 2 in current phase — COMPLETE
-Status: Phase 8 complete — advancing to Phase 9
-Last activity: 2026-02-28 — Phase 8 Plan 02 executed — zone-first ordering wired into generator; 176 tests pass
+Phase: 9 of 10 (BPM Grid and Music Bed) — IN PROGRESS
+Plan: 2 of 3 in current phase — COMPLETE
+Status: Phase 9 Plan 02 complete — assembly/music.py with Jamendo fetch and permanent per-vibe cache
+Last activity: 2026-02-28 — Phase 9 Plan 02 executed — MusicBed dataclass, fetch_music_for_vibe, 18-vibe mapping; librosa+soundfile added to pyproject.toml; 176 tests pass
 
-Progress: [████░░░░░░] 45% (v2.0 milestone — 5/11 plans complete)
+Progress: [████░░░░░░] 55% (v2.0 milestone — 6/11 plans complete)
 
 ## Performance Metrics
 
@@ -53,6 +53,7 @@ Progress: [████░░░░░░] 45% (v2.0 milestone — 5/11 plans co
 | 06 Inference Persistence | 1 | 3 min |
 | 07 Structural Analysis | 2/3 | 7.5 min |
 | 08 Zone Matching | 2/2 | 15 min |
+| 09 Music Bed | 1/3 | 2 min |
 
 ## Accumulated Context
 
@@ -80,6 +81,9 @@ Recent decisions affecting v2.0 work:
 - [Phase 08-01]: NarrativeZone(str, Enum) ensures Pydantic v2 serializes as plain string; ClipEntry.narrative_zone defaults None for backward compat with v1.0 manifests
 - [Phase 08-02]: test_no_clip_overlap rewritten to per-clip validity check — zone-first ordering breaks chronological adjacency assumption; resolve_overlaps still guarantees non-overlapping pre-sort windows
 - [Phase 08-02]: TestManifestGeneration tests patch cinecut.narrative.generator.run_zone_matching with position-based mock — sentence-transformers not installed in dev environment; mock returns correct-length zones list
+- [Phase 09-02]: audiodownload_allowed=True filter required before selecting Jamendo track (April 2022 API change — False results return 404)
+- [Phase 09-02]: soundfile>=0.12.1 pinned for MP3 support via bundled libsndfile 1.1.0+; without it librosa.load() on .mp3 raises LibsndfileError
+- [Phase 09-02]: MusicBed runtime dataclass intentionally separate from manifest/schema.py MusicBed Pydantic model; Plan 03 converts between them
 
 ### Pending Todos
 
@@ -95,5 +99,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Phase 8 Plan 02 complete — sort_clips_by_zone, enforce_zone_pacing_curve, ZONE_ORDER; generator wired with run_zone_matching + zone-first ordering; 176 tests pass
+Stopped at: Phase 9 Plan 02 complete — assembly/music.py with Jamendo API fetch, permanent per-vibe cache, graceful None; librosa and soundfile added to pyproject.toml; 176 tests pass
 Resume file: None
