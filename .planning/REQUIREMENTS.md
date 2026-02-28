@@ -48,13 +48,13 @@ Requirements for v2.0 Structural & Sensory Overhaul. Each maps to a roadmap phas
 - [x] **IINF-01**: Pipeline resume skips LLaVA inference when a valid SceneDescription cache exists for the source file
 - [x] **IINF-02**: SceneDescription cache is automatically invalidated when source file mtime or size changes
 - [x] **IINF-03**: System resolves all model files (LLaVA GGUF, mmproj, text GGUF) from `~/models` by default; directory overridable via `CINECUT_MODELS_DIR` environment variable
-- [ ] **IINF-04**: Pipeline uses heuristic zone fallback (5% / 45% / 80% of runtime) when the text model GGUF file is not present in the models directory
+- [x] **IINF-04**: Pipeline uses heuristic zone fallback (5% / 45% / 80% of runtime) when the text model GGUF file is not present in the models directory
 
 ### Structural Analysis
 
-- [ ] **STRC-01**: Text LLM identifies three narrative anchor timestamps (BEGIN_T, ESCALATION_T, CLIMAX_T) from subtitle corpus, processing in chunks of 50-100 events
+- [x] **STRC-01**: Text LLM identifies three narrative anchor timestamps (BEGIN_T, ESCALATION_T, CLIMAX_T) from subtitle corpus, processing in chunks of 50-100 events
 - [ ] **STRC-02**: System assigns each extracted clip to a narrative zone: BEGINNING, ESCALATION, or CLIMAX
-- [ ] **STRC-03**: Zone assignments are stored in TRAILER_MANIFEST.json v2.0 schema alongside existing clip fields
+- [x] **STRC-03**: Zone assignments are stored in TRAILER_MANIFEST.json v2.0 schema alongside existing clip fields
 
 ### Edit Ordering
 
@@ -121,10 +121,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | IINF-01 | Phase 6 | Complete |
 | IINF-02 | Phase 6 | Complete |
 | IINF-03 | Phase 7 | Complete |
-| IINF-04 | Phase 7 | Pending |
-| STRC-01 | Phase 7 | Pending |
+| IINF-04 | Phase 7 | Complete |
+| STRC-01 | Phase 7 | Complete |
 | STRC-02 | Phase 8 | Pending |
-| STRC-03 | Phase 7 | Pending |
+| STRC-03 | Phase 7 | Complete |
 | EORD-01 | Phase 8 | Pending |
 | EORD-02 | Phase 8 | Pending |
 | EORD-03 | Phase 8 | Pending |

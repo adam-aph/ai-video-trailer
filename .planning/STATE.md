@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Structural & Sensory Overhaul
 status: unknown
-last_updated: "2026-02-28T13:51:41Z"
+last_updated: "2026-02-28T14:01:31.716Z"
 progress:
-  total_phases: 10
-  completed_phases: 6
+  total_phases: 5
+  completed_phases: 2
   total_plans: 11
-  completed_plans: 2
+  completed_plans: 3
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-28)
 
 **Core value:** Given a feature film and its subtitle file, produce a narratively coherent, vibe-styled trailer that a human editor would be proud to show.
-**Current focus:** v2.0 Phase 7 — Structural Analysis (Plan 01 complete, Plan 02 next)
+**Current focus:** v2.0 Phase 7 — Structural Analysis (Plans 01+02 complete, Plan 03 next)
 
 ## Current Position
 
 Phase: 7 of 10 (Structural Analysis) — In Progress
-Plan: 1 of 3 in current phase — COMPLETE
-Status: In progress (Phase 7 Plan 01 done, Phase 7 Plan 02 next)
-Last activity: 2026-02-28 — Phase 7 Plan 01 executed — TextEngine and CINECUT_MODELS_DIR migration
+Plan: 2 of 3 in current phase — COMPLETE
+Status: In progress (Phase 7 Plans 01+02 done, Phase 7 Plan 03 next)
+Last activity: 2026-02-28 — Phase 7 Plan 02 executed — structural analysis, manifest v2.0, Stage 5 gate
 
-Progress: [██░░░░░░░░] 18% (v2.0 milestone — 2/11 plans complete)
+Progress: [███░░░░░░░] 27% (v2.0 milestone — 3/11 plans complete)
 
 ## Performance Metrics
 
@@ -51,7 +51,7 @@ Progress: [██░░░░░░░░] 18% (v2.0 milestone — 2/11 plans co
 | Phase | Plans | Avg/Plan |
 |-------|-------|----------|
 | 06 Inference Persistence | 1 | 3 min |
-| 07 Structural Analysis | 1/3 | 5 min |
+| 07 Structural Analysis | 2/3 | 7.5 min |
 
 ## Accumulated Context
 
@@ -72,6 +72,9 @@ Recent decisions affecting v2.0 work:
 - [Phase 7-01]: TextEngine uses port 8090 and -c 8192 (8k context for structural analysis chunks), never --mmproj
 - [Phase 7-01]: wait_for_vram() called before GPU_LOCK.acquire() in TextEngine.__enter__ — handles async VRAM reclaim between model swaps
 - [Phase 7-01]: cli.py --model/--mmproj default=None resolved at runtime inside main() via get_models_dir() — avoids hardcoded path at import time
+- [Phase 07-02]: _clamp_anchors_to_chunk uses +-10s tolerance window to prevent hallucinated LLM timestamps from polluting median aggregation
+- [Phase 07-02]: Inline import of StructuralAnchors in structural.py avoids circular import between inference and manifest packages
+- [Phase 07-02]: statistics.median aggregation across subtitle chunks — single valid chunk passes through, multiple chunks produce true median for robustness
 
 ### Pending Todos
 
@@ -87,5 +90,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Phase 7 Plan 01 complete — TextEngine context manager, wait_for_vram, CINECUT_MODELS_DIR migration (3 tasks, 4 files, 133 tests passing)
+Stopped at: Phase 7 Plan 02 complete — structural analysis pipeline, manifest v2.0, Stage 5 gate, 20 unit tests (153 total passing)
 Resume file: None
