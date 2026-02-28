@@ -102,12 +102,12 @@ Plans:
   3. Music bed audibly ducks during protagonist VO and high-emotion shots, then recovers
   4. All audio sources play at consistent perceived loudness — no single stem overwhelms or disappears
   5. No SFX file dependencies exist on disk — all synthesis runs via FFmpeg aevalsrc at 48000Hz
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 10-01: SFX synthesis (conform/sfx.py) — aevalsrc sweep generation, hard-cut and act-boundary tiers, pre-rendered WAV at cut positions, explicit -ar 48000
-- [ ] 10-02: VO extraction (conform/vo_extract.py) — protagonist identification, output-seeking FFmpeg extraction, AAC 48000Hz re-encode, 0.8s minimum duration
-- [ ] 10-03: Four-stem audio mix (conform/audio_mix.py) — sidechaincompress ducking, amix normalize=0, stem-level loudnorm, 48000Hz resampling, Pass 3 + Pass 4 in conform pipeline
+- [ ] 10-01-PLAN.md — SFX synthesis (conform/sfx.py) — aevalsrc linear chirp, hard-cut (0.4s) and act-boundary (1.2s) tiers, idempotent WAV synthesis, adelay timeline overlay
+- [ ] 10-02-PLAN.md — VO extraction (conform/vo_extract.py) — protagonist identification via SSAEvent.name, output-seeking FFmpeg extraction, AAC 48000Hz stereo, 0.8s minimum duration
+- [ ] 10-03-PLAN.md — Four-stem audio mix (conform/audio_mix.py) — sidechaincompress ducking, amix normalize=0, stem-level loudnorm, 48000Hz resampling; Pass 3 + Pass 4 wired into conform/pipeline.py; unit tests
 
 ## Progress
 
