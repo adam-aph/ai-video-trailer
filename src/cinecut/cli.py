@@ -28,16 +28,13 @@ from cinecut.ingestion.subtitles import parse_subtitles
 from cinecut.ingestion.keyframes import collect_keyframe_timestamps, extract_all_keyframes
 from cinecut.inference.engine import run_inference_stage
 from cinecut.inference.cache import load_cache, save_cache
+from cinecut.inference.text_engine import get_models_dir, MISTRAL_GGUF_NAME
 from cinecut.manifest.loader import load_manifest
 from cinecut.manifest.vibes import VIBE_PROFILES
 from cinecut.narrative.generator import run_narrative_stage
 from cinecut.conform.pipeline import conform_manifest
 from cinecut.checkpoint import PipelineCheckpoint, load_checkpoint, save_checkpoint
 from cinecut.assembly import assemble_manifest
-
-# Default model paths for LLaVA inference
-_DEFAULT_MODEL_PATH = "/home/adamh/models/ggml-model-q4_k.gguf"
-_DEFAULT_MMPROJ_PATH = "/home/adamh/models/mmproj-model-f16.gguf"
 
 # Total pipeline stages (proxy, subtitles, keyframes, inference, narrative, assembly, conform)
 TOTAL_STAGES = 7
@@ -103,25 +100,25 @@ def main(
         ),
     ] = None,
     model: Annotated[
-        Path,
+        Optional[Path],
         typer.Option(
             "--model",
             file_okay=True,
             dir_okay=False,
             resolve_path=True,
-            help=f"Path to LLaVA GGUF model file (default: {_DEFAULT_MODEL_PATH}).",
+            help="Path to LLaVA GGUF model (default: CINECUT_MODELS_DIR/ggml-model-q4_k.gguf).",
         ),
-    ] = Path(_DEFAULT_MODEL_PATH),
+    ] = None,
     mmproj: Annotated[
-        Path,
+        Optional[Path],
         typer.Option(
             "--mmproj",
             file_okay=True,
             dir_okay=False,
             resolve_path=True,
-            help=f"Path to mmproj GGUF file (default: {_DEFAULT_MMPROJ_PATH}).",
+            help="Path to mmproj GGUF (default: CINECUT_MODELS_DIR/mmproj-model-f16.gguf).",
         ),
-    ] = Path(_DEFAULT_MMPROJ_PATH),
+    ] = None,
 ) -> None:
     """Ingest a film and produce analysis-ready artifacts for trailer generation."""
     # --- Input validation (PIPE-01) ---
@@ -177,6 +174,13 @@ def main(
     # --- Work directory setup ---
     work_dir = _setup_work_dir(video)
     console.print(f"Work directory: [dim]{work_dir}[/dim]\n")
+
+    # Resolve model paths at runtime — respects CINECUT_MODELS_DIR (IINF-03)
+    models_dir = get_models_dir()
+    if model is None:
+        model = models_dir / "ggml-model-q4_k.gguf"
+    if mmproj is None:
+        mmproj = models_dir / "mmproj-model-f16.gguf"
 
     # --- Checkpoint init (PIPE-04) ---
     ckpt = load_checkpoint(work_dir)
