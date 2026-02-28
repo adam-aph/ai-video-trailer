@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -30,6 +31,16 @@ _VIBE_ALIASES: dict[str, str] = {
     "scifi": "sci-fi",
     "sci_fi": "sci-fi",
 }
+
+
+class NarrativeZone(str, Enum):
+    """Narrative zone assigned by sentence-transformers zone matching (STRC-02).
+
+    str, Enum ensures Pydantic v2 serializes as plain string ("BEGINNING" not {"value":"BEGINNING"}).
+    """
+    BEGINNING = "BEGINNING"
+    ESCALATION = "ESCALATION"
+    CLIMAX = "CLIMAX"
 
 
 class StructuralAnchors(BaseModel):
@@ -70,6 +81,9 @@ class ClipEntry(BaseModel):
     visual_analysis: Optional[str] = None
     subtitle_analysis: Optional[str] = None
     money_shot_score: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+
+    # Phase 8: zone-based ordering (STRC-02)
+    narrative_zone: Optional[NarrativeZone] = None
 
     @model_validator(mode="after")
     def end_after_start(self) -> "ClipEntry":
