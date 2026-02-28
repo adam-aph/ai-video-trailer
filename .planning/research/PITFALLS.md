@@ -1,509 +1,421 @@
 # Domain Pitfalls
 
-**Domain:** AI-driven video trailer generation with local LLM inference
+**Domain:** AI-driven video trailer generation with local LLM inference — v2.0 Structural & Sensory Overhaul
 **Project:** CineCut AI
-**Researched:** 2026-02-26
-**Confidence:** MEDIUM (training data; WebSearch unavailable for verification)
+**Researched:** 2026-02-28 (v2.0 addendum; v1.0 pitfalls retained below)
+**Confidence:** MEDIUM-HIGH for FFmpeg audio/LLM pitfalls (well-documented failure modes verified by WebSearch); MEDIUM for BPM/music API pitfalls (partially verified); LOW for some edge cases (training data only)
 
 ---
 
-## Critical Pitfalls
+## v2.0 Pitfalls — New Feature Integration
 
-Mistakes that cause rewrites, corrupted output, or fundamental architecture problems.
-
----
-
-### Pitfall 1: VRAM Contention Between llama-cli and FFmpeg Hardware Decoding
-
-**What goes wrong:** llama-cli loads a LLaVA model that occupies 8-10GB of the 12GB VRAM budget. FFmpeg, when compiled with NVDEC/NVENC support (cuvid, h264_cuvid), silently allocates GPU memory for hardware decoding/encoding. The two processes compete for the same 12GB VRAM. The system appears to work on short clips but OOMs on 2-hour films because FFmpeg's GPU memory allocation grows with decode queue depth.
-
-**Why it happens:** llama-cli and FFmpeg are independent processes with no shared memory manager. Neither knows the other exists. CUDA's default memory allocation strategy is greedy -- llama.cpp in particular will pre-allocate a large contiguous block at startup.
-
-**Consequences:** CUDA out-of-memory errors mid-pipeline (after potentially hours of processing). Corrupted partial output. In worst cases, the NVIDIA driver crashes entirely, requiring a restart of both processes.
-
-**Warning signs:**
-- `nvidia-smi` shows >95% VRAM utilization during proxy creation
-- Sporadic `CUDA error: out of memory` that only appear with longer films
-- FFmpeg exits with signal 9 (killed) or cryptic "Unknown error"
-- System becomes sluggish during pipeline execution
-
-**Prevention:**
-1. **Never run llama-cli and FFmpeg GPU operations concurrently.** Design the pipeline as strictly sequential: FFmpeg creates all proxies/keyframes first, then llama-cli runs inference, then FFmpeg does the conform. No overlap.
-2. **Force FFmpeg to use CPU decoding for the analysis proxy.** Use `-hwaccel none` or simply omit hardware acceleration flags. At 420p, CPU decode is fast enough and avoids all VRAM contention.
-3. **Reserve GPU exclusively for inference.** Only use FFmpeg NVENC for the final conform step (if at all), and only after llama-cli has fully exited and released VRAM.
-4. **Add a VRAM check before inference.** Shell out to `nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits` and abort with a clear message if free VRAM is below the model's requirement.
-5. **Set `CUDA_VISIBLE_DEVICES` per subprocess** if you need isolation, though with a single GPU this mainly prevents accidental multi-context allocation.
-
-**Detection:** Monitor `nvidia-smi` output at each pipeline stage transition. Log VRAM usage before and after each major operation.
-
-**Phase:** Must be addressed in Phase 1 (pipeline architecture). Getting this wrong means rewriting the entire orchestration layer.
+These pitfalls are specific to adding the eight v2.0 features to the existing CUDA 11.4 / llama-server / FFmpeg pipeline.
+They are ordered by severity. Each includes the phase most likely to address it.
 
 ---
 
-### Pitfall 2: CUDA 11.4 / Kepler Architecture Compatibility Wall
+## Critical Pitfalls (v2.0)
 
-**What goes wrong:** The Quadro K6000 uses the Kepler architecture (compute capability 3.5). NVIDIA dropped Kepler support in CUDA 12.0+. Many modern libraries (PyTorch 2.x, newer llama.cpp builds) require CUDA 12+ or assume compute capability 5.0+ (Maxwell). Attempting to use pre-built binaries or pip packages results in either silent failures, incorrect results, or startup crashes.
+Mistakes that cause corrupted output, pipeline rewrites, or subtle quality failures that are hard to diagnose post-hoc.
 
-**Why it happens:** The ecosystem is moving toward newer GPU architectures. CUDA 11.4 is the last major CUDA version supporting Kepler. Pre-built wheels for llama-cpp-python, PyTorch, etc. are typically compiled for CUDA 12.x and sm_70+ (Volta). Even if they claim CUDA 11 support, they may not include sm_35 kernels.
+---
+
+### Pitfall V2-1: llama-server Model Swap — CUDA Memory Not Released Between Sessions
+
+**What goes wrong:** v2.0 introduces a two-stage LLM pipeline: a text-only structural analysis model (lightweight LLaMA, no mmproj) runs first to classify scenes into BEGIN_T/ESCALATION_T/CLIMAX_T zones, then the LLaVA visual model (with mmproj) runs second for per-frame description. Each uses a different llama-server invocation. The trap: terminating the first llama-server process does not guarantee immediate CUDA memory release on CUDA 11.4 / Kepler. The CUDA context can linger for several seconds after `process.terminate()` / `process.wait()`. If the second llama-server starts too quickly, it collides with the lingering VRAM allocation and either crashes on startup or silently fails to load all layers onto GPU (falling back to CPU-only, 10-100x slower).
+
+**Why it happens:** The Linux kernel CUDA driver does not guarantee synchronous VRAM release on process exit for CUDA 11.4 / Kepler. Newer CUDA versions (12.x) improved deallocation speed, but CUDA 11.4 on Kepler is known to have slower teardown. A `process.wait()` returning 0 means the process exited, not that VRAM is free. `nvidia-smi` showing 0MB used is the only reliable signal that VRAM has been returned.
 
 **Consequences:**
-- llama-cli binary may need to be compiled from source with `-DLLAMA_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=35`
-- PyTorch (if used for any utility) must be pinned to <=2.0.x or <=2.1.x with the CUDA 11.8 wheel (which still includes sm_35)
-- Random segfaults or "no kernel image" errors at runtime that are extremely hard to diagnose
-- Performance will be significantly lower than benchmarks suggest (benchmarks are typically for Ampere/Ada GPUs)
+- Second llama-server fails to load model layers onto GPU (loads to CPU instead with no error message)
+- Text-stage structural analysis takes 50-200x longer than expected (no error, just slowness)
+- Inference produces structurally correct JSON but the scene-zone matching is based on degraded CPU-quality inference
 
 **Warning signs:**
-- `CUDA error: no kernel image is available for execution on the device`
-- llama-cli compiles but produces garbage output (wrong CUDA arch)
-- `torch.cuda.is_available()` returns True but operations fail
-- Performance is 10-100x worse than expected benchmarks
+- Second llama-server startup completes unusually fast (under 5 seconds — model loaded entirely to CPU)
+- `nvidia-smi` shows near-zero GPU utilization during the text-only inference stage
+- Text-stage inference that should take ~2s per scene takes 30-90s per scene
+- `nvidia-smi` after first server stop shows residual VRAM usage >50MB
 
 **Prevention:**
-1. **Compile llama.cpp from source** with explicit `CMAKE_CUDA_ARCHITECTURES=35`. Do NOT use pre-built releases.
-2. **Pin CUDA toolkit to 11.4.** Do not install CUDA 12 even if prompted. Use `nvcc --version` to verify.
-3. **If using any Python CUDA libraries,** pin to versions with known CUDA 11.4 / sm_35 support. Document exact version pins.
-4. **Test inference early** with a simple llama-cli prompt before building any pipeline. Verify output quality, not just "it runs."
-5. **Accept performance constraints.** Kepler lacks tensor cores and has lower memory bandwidth. Budget 5-15 seconds per keyframe for LLaVA inference. Design the pipeline for patience, not speed.
+1. After terminating the first llama-server, poll `nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits` until reported VRAM usage drops below a threshold (e.g. 500MB) or a timeout (15 seconds) is reached. Only then start the second server.
+2. Add a hard sleep of at least 3 seconds between server stop and server start as a minimum baseline even if polling is not used.
+3. Log which stage each llama-server invocation is serving. If the startup health check passes in under 3 seconds for a model that normally takes 8-15 seconds, emit a warning: "Model may not have loaded to GPU — startup was suspiciously fast."
+4. Design the GPU_LOCK logic so that it covers the inter-stage gap: the lock should be held from first server `__enter__` through second server `__enter__`, with only the model swap in between.
+5. Verify GPU load after startup by calling `nvidia-smi` and comparing reported VRAM against the expected model size. If VRAM used is below 80% of expected model size, abort with a clear error rather than silently proceeding with CPU inference.
 
-**Detection:** Run `nvidia-smi` to confirm driver 470.x is loaded. Run `nvcc --version` to confirm CUDA 11.4. Test llama-cli with `--verbose` flag to see CUDA backend initialization.
+**Detection:** Log `nvidia-smi` VRAM stats at: before first server start, after first server stop, before second server start, after second server health check. Any anomaly in these four readings should surface the issue immediately.
 
-**Phase:** Must be validated in Phase 0 (environment setup) before any other work begins. If llama-cli cannot run LLaVA on this GPU, the entire project concept needs revision.
+**Phase:** Phase 1 of v2.0 (Two-Stage LLM Pipeline). This is a day-one design constraint — the inter-stage swap logic must be built correctly from the start.
 
 ---
 
-### Pitfall 3: Subprocess Management of llama-cli -- Silent Failures and Zombie Processes
+### Pitfall V2-2: FFmpeg Complex Filtergraph Audio Mixing — Ordering, Sync, and Loudnorm Interference
 
-**What goes wrong:** llama-cli is invoked via `subprocess.Popen` or `subprocess.run`. Over the course of analyzing hundreds of keyframes from a 2-hour film, several failure modes emerge: (a) llama-cli hangs on certain inputs and never returns, (b) llama-cli crashes but the parent Python process doesn't detect it, (c) zombie processes accumulate when the parent doesn't properly wait, (d) stderr output is lost, making failures undiagnosable.
+**What goes wrong:** The v2.0 output trailer has four simultaneous audio layers: (1) film audio from extracted clips, (2) music bed from royalty-free archive, (3) synthesized transition SFX, and (4) protagonist VO segments. Mixing these in FFmpeg with `amix` or a complex `-filter_complex` filtergraph introduces several failure modes that are easy to get wrong and extremely hard to debug once they interact.
 
-**Why it happens:** Subprocess-based integration lacks the error propagation of in-process function calls. llama-cli writes to stdout/stderr in unpredictable ways. Some LLaVA prompts cause the model to enter a generation loop that never hits an EOS token. CUDA errors in the child process may corrupt the GPU state without the parent knowing.
+**Sub-failures:**
+
+**(a) amix normalizes input volumes, destroying the intended mix:**
+FFmpeg's `amix` filter defaults to `normalize=1`, which divides each input by the number of inputs. With 4 inputs, every track is multiplied by 0.25. This obliterates the carefully tuned ducking ratios (e.g. music at -18dB under VO). The result sounds thin and quiet, with no apparent ducking relationship between tracks.
+
+**(b) loudnorm applied to the mixed output destroys dynamic ducking:**
+If a per-vibe LUFS normalization pass (`loudnorm`) is applied to the final mixed output rather than to individual stems before mixing, the loudnorm algorithm treats the ducking as content to be normalized away. A quiet segment (music ducked under VO) gets boosted; a loud segment (music at full level) gets reduced. The result sounds tonally flat — the dynamic intent of ducking is erased.
+
+**(c) Timestamp misalignment between mixed audio and video:**
+When the music bed is a separate audio file (not extracted from the source film), it starts at PTS=0. The film clips, after extraction and PTS reset, also start at PTS=0. After concatenation, the music bed must be re-timed to match the assembled trailer duration. If the music bed is mixed before concatenation (at the individual clip level), the timestamps are relative to each clip, not the trailer. If it is mixed after concatenation, the assembled video timestamps must be reset before mixing. Getting this ordering wrong produces a trailer where the music bed is in sync for the first clip only, then drifts.
+
+**(d) Sample rate mismatch between sources causes filter rejection:**
+The film audio, music bed (downloaded MP3/OGG from API), and SoX-synthesized SFX may have different sample rates (44100Hz, 48000Hz, 22050Hz). FFmpeg's `amix` filter rejects inputs with mismatched sample rates — it silently drops the mismatched stream or emits an "invalid sample rate" error. The final output plays without the missing stream and no clear error is surfaced in the log unless stderr is explicitly captured and checked.
+
+**Prevention:**
+1. Apply loudnorm to each stem independently before mixing (not to the final mix). Use individual clip LUFS normalization as already implemented in `extract_and_grade_clip()`. The music bed gets its own single-pass normalization to a fixed reference level (e.g. -23 LUFS) before being fed into the mixer. SFX stems at -18 LUFS. Film VO at -14 LUFS. Then mix using volume ratios, not loudnorm.
+2. Always use `amix` with `normalize=0` (or use explicit `volume` filters before `amix`):
+   ```
+   -filter_complex "[0:a]volume=1.0[film];[1:a]volume=0.15[music];[2:a]volume=0.8[vo];[film][music][vo]amix=inputs=3:normalize=0"
+   ```
+3. Resample all audio stems to 48000Hz before entering any mixing filtergraph. Add `-ar 48000` to every stem extraction and music download conversion step. Never assume input sample rate — always verify with `ffprobe -show_entries stream=sample_rate`.
+4. Mix audio only after final video concatenation. The music bed is applied in a single pass over the assembled trailer, not per-clip. This ensures music timeline alignment and avoids the per-clip timestamp problem.
+5. Sidechain ducking for VO segments: use `sidechaincompress` or manual `volume` envelope filters keyed to VO timestamp windows rather than automatic ducking filters (which require precise threshold tuning and behave inconsistently with short VO segments).
+6. Build a dedicated audio mixing function that accepts a list of (stem_path, level_db, start_time_s) tuples and generates the filtergraph programmatically. This prevents ad-hoc filtergraph construction that is easy to get wrong.
+
+**Detection:**
+- After mixing, verify all expected streams are present with `ffprobe -show_streams`.
+- Compare audio stream duration against video stream duration — should be within 20ms.
+- Spot-check: play the first 10 seconds of the mixed output and verify music bed is audible below VO.
+
+**Phase:** Phase 2 of v2.0 (Audio Architecture). The mixing strategy must be locked before any audio stem generation work begins.
+
+---
+
+### Pitfall V2-3: Non-Linear Scene Reordering — Audio Bleed and Dialogue Continuity Breaks
+
+**What goes wrong:** v2.0 reorders clips by semantic zone (BEGIN_T, ESCALATION_T, CLIMAX_T) rather than film chronology. A clip from minute 90 of the film may be placed before a clip from minute 15. This introduces three distinct failure modes:
+
+**(a) Hard-cut audio bleed between reordered clips:**
+When a clip is extracted from the film, FFmpeg extracts the film's complete audio track for that segment — including background score, ambient sound, and dialogue. If the next clip in the reordered sequence comes from a completely different scene, the audio environments collide at the cut point. For example: a quiet emotional scene (low ambient noise) cut to an action scene (gunfire audio) with no transition will sound jarring even with a hard cut, because the audio has no ramp. This is expected as an editorial choice, but the additional problem is audio from the tail of clip N bleeds into the head of clip N+1 if they share any acoustic space in the original film (e.g., both in the same room, separated by 40 minutes of film time).
+
+**(b) Dialogue lines that depend on prior context sound incoherent:**
+Selecting a scene where a character says "I told you this would happen" for the BEGIN_T zone makes no sense without the context of what was told. The structural analysis model is responsible for filtering these out, but if the zone-matching logic selects clips primarily by beat type without checking dialogue self-containedness, the final trailer contains non-sequitur dialogue lines that confuse viewers.
+
+**(c) Subtitle alignment lost after reordering:**
+If any downstream step tries to render subtitles or dialogue excerpts in the final trailer based on original SRT timestamps, those timestamps are now wrong. The dialogue from minute 90 appears at the trailer's second 10. Systems that naively copy subtitle timestamps into the manifest without adjusting for reorder position will either display nothing or display text at the wrong time.
+
+**Prevention:**
+1. Always extract clips with `-avoid_negative_ts make_zero` and reset PTS on both video and audio (`setpts=PTS-STARTPTS`, `asetpts=PTS-STARTPTS`) so each clip's audio starts at t=0, preventing bleed from original timeline position.
+2. Add a 0.1-second audio fade-out at the end of every extracted clip and a 0.1-second audio fade-in at the start. This costs nothing perceptually on hard cuts but prevents any continuity clicks or bleed artifacts: `-af "afade=t=in:d=0.1,afade=t=out:st={duration-0.1}:d=0.1"`.
+3. The zone-matching algorithm must filter out clips whose dialogue text contains pronouns that reference prior context without antecedent ("it", "that", "he told me"). Simple heuristic: flag dialogue excerpts shorter than 4 words or beginning with a pronoun as "context-dependent" and deprioritize them for BEGIN_T placement.
+4. Subtitle timestamps in the manifest's `dialogue_excerpt` field are for human review only. Never attempt to render them as burned-in subtitles in the assembled trailer — the timestamps have no relationship to the reordered timeline.
+5. When reordering, verify that no two adjacent clips in the output sequence come from within 30 seconds of each other in the source film. Adjacent clips from the same scene will create false continuity that viewers will notice as awkward (same shot, different angle, jarring cut).
+
+**Detection:** After reordering, log the source timestamps of consecutive clip pairs. Flag any pair where `|clip[i].source_start_s - clip[i+1].source_start_s| < 30.0` as a potential false-continuity problem.
+
+**Phase:** Phase 2 of v2.0 (Non-Linear Ordering and Zone Matching). Prevention must be designed into the ordering algorithm from the start.
+
+---
+
+### Pitfall V2-4: BPM Detection Failures — Silence, Edge Cases, and Octave Errors
+
+**What goes wrong:** v2.0 uses BPM detection on downloaded royalty-free music to drive the edit rhythm grid. BPM detection fails or produces wrong values in several well-documented cases:
+
+**(a) Silence at track boundaries produces 0 BPM:**
+`librosa.beat.beat_track()` returns 0.0 BPM and an empty beat array when no onset strength is detectable — including when the track starts or ends with a long silence (common in downloaded music with fade-out endings). The beat grid is empty. Any downstream code that divides by BPM or tries to calculate beat intervals from an empty array crashes with a ZeroDivisionError or IndexError.
+
+**(b) Octave errors (half-tempo / double-tempo):**
+Librosa's `beat_track` is known to return half or double the true tempo for tracks with strong backbeats or syncopated rhythms. A 140 BPM electronic track may return 70 BPM (half-tempo). A 90 BPM hip-hop track may return 180 BPM (double-tempo). The resulting edit grid places cuts at 2x or 0.5x the intended frequency, which sounds either frantic or sluggish.
+
+**(c) Unusual time signatures (3/4, 5/4, 7/8):**
+Librosa assumes 4/4 time by default. In 3/4 time (waltz), the beat-tracking algorithm places phantom beats at non-existent positions, producing an irregular beat grid that doesn't align with musical accents. Documentary-style music and some classical film scores commonly use 3/4 or compound meters.
+
+**(d) Variable tempo throughout the track:**
+Downloaded royalty-free tracks may have tempo ramps (build-up sections) or explicit tempo changes mid-track. Running a global BPM analysis returns an average that is wrong for every section of the track.
 
 **Consequences:**
-- Pipeline appears to hang for hours (actually one llama-cli invocation is stuck)
-- Accumulated zombie processes consume PID space and potentially hold VRAM allocations
-- Missing or truncated scene descriptions that silently degrade trailer quality
-- GPU left in a bad state after a crash, requiring manual cleanup
-
-**Warning signs:**
-- Single keyframe analysis taking >60 seconds (should be 5-15s on Kepler)
-- `ps aux | grep llama` shows multiple llama-cli processes
-- `nvidia-smi` shows VRAM allocated but no active compute
-- Incomplete JSON in llama-cli output (truncated mid-token)
+- ZeroDivisionError or crash at the beat grid construction step
+- Edit cuts land between beats instead of on beats, destroying the rhythm-sync effect
+- Variable-BPM tracks have random-feeling cuts despite BPM-sync being active
 
 **Prevention:**
-1. **Always use `subprocess.run()` with `timeout` parameter.** Set a generous but firm timeout (e.g., 120 seconds per keyframe). Catch `subprocess.TimeoutExpired`, kill the process, and log the failure.
-2. **Capture both stdout and stderr.** Use `capture_output=True` and log stderr on any non-zero exit code.
-3. **Validate output before proceeding.** llama-cli output should be parseable (check for valid JSON or expected structure). If output is garbage, retry once then skip with a logged warning.
-4. **Implement a process cleanup wrapper:**
-   ```python
-   def run_llama(args, timeout=120):
-       try:
-           result = subprocess.run(
-               args, capture_output=True, text=True, timeout=timeout
-           )
-           if result.returncode != 0:
-               logger.error(f"llama-cli failed: {result.stderr}")
-               return None
-           return result.stdout
-       except subprocess.TimeoutExpired:
-           logger.warning("llama-cli timed out, skipping frame")
-           return None
-   ```
-5. **Never use `subprocess.Popen` without explicit `.wait()` or context manager.** If you need streaming output, use `Popen` with a background thread reading stdout, but always ensure cleanup in a `finally` block.
-6. **Add a `--max-tokens` flag** to every llama-cli invocation to prevent runaway generation.
+1. Always guard against 0 BPM: after calling `beat_track`, check if the returned tempo is 0 or the beat array is empty. Fall back to a vibe-default BPM (e.g. Action: 140, Drama: 80, Horror: 65) rather than crashing.
+2. Clamp detected BPM to a plausible range per vibe (e.g. 60-180 BPM). If detected value is outside range, attempt octave correction: if tempo > vibe_max, halve it; if tempo < vibe_min, double it.
+3. Prefer `librosa.feature.tempo()` with a prior distribution over `librosa.beat.beat_track()` for tempo detection when onset strength is weak. The prior can be tuned to the vibe's expected BPM range.
+4. For edit rhythm purposes, use beat positions (not just BPM) to define the grid. `librosa.beat.beat_track()` returns both tempo and beat frames. Use the beat frame positions directly for cut point candidates rather than reconstructing from BPM alone.
+5. If the detected beat array has fewer than 8 beats in the first 30 seconds of a track, classify the track as "non-beat-tracked" and fall back to measure-level cuts at (60 / bpm * 4) intervals (quarter-note bars), which is more robust than individual beat tracking.
+6. Set `trim=False` in `beat_track()` to prevent silence-trimming behavior that can drop the last (or first) beats and shift the entire grid.
 
-**Detection:** Log wall-clock time per inference call. Alert if any single call exceeds 2x the median time. Monitor process count.
+**Detection:** Log detected BPM and beat count for every downloaded track. Flag tracks with detected BPM outside the range [60, 200] or beat count under 10 as requiring fallback handling.
 
-**Phase:** Phase 2 (inference integration). Must be designed correctly from the start -- retrofitting timeout/retry logic is painful.
+**Phase:** Phase 3 of v2.0 (BPM Grid / Beat Map). All edge cases must be handled before the beat map is used to drive cut timing.
 
 ---
 
-### Pitfall 4: Timecode Drift Between Analysis Proxy and Source File
+### Pitfall V2-5: Music API Unreliability — Downtime, OAuth Expiry, Track Unavailability, and Caching
 
-**What goes wrong:** The 420p analysis proxy is created via FFmpeg transcode. Keyframes are extracted from this proxy and analyzed by LLaVA. The TRAILER_MANIFEST.json records timecodes based on the proxy. When the final conform step seeks into the original high-resolution source using these timecodes, the actual frame is wrong -- sometimes by milliseconds (visible as a jump cut), sometimes by seconds (completely wrong shot).
+**What goes wrong:** The music bed feature downloads a royalty-free track from an external API (e.g. Freesound) on first use per vibe. Several failure modes exist that, if not handled gracefully, make the entire pipeline fail for any vibe that has not yet downloaded its music track:
 
-**Why it happens:** Multiple causes:
-- **Variable frame rate (VFR) source files:** Many MKV files from consumer cameras or streaming rips have variable frame rates. FFmpeg normalizes to constant frame rate (CFR) during proxy creation, shifting frame timing.
-- **Seek precision:** FFmpeg's `-ss` before `-i` does keyframe-based seeking. The nearest keyframe in the proxy may be at a different offset than in the source due to different GOP structures.
-- **Transcoding timestamp rounding:** FFmpeg's timestamp handling can introduce sub-frame rounding errors that accumulate over a 2-hour file.
-- **Container timestamp differences:** MKV, AVI, and MP4 use different internal timestamp precision (MKV uses nanoseconds, MP4 uses a timescale).
+**(a) API downtime during first run:**
+The Freesound API (or any external music source) may be unavailable. An unhandled `requests.ConnectionError` or timeout propagates up and crashes the pipeline mid-run, after inference has already completed and expensive work has been done.
 
-**Consequences:**
-- Trailer clips start/end on wrong frames -- visible as flash frames or missing the intended moment
-- Audio/video desynchronization in the final output
-- The `--review` workflow becomes unreliable (what the user approved in the manifest is not what they get)
-- Worst case: the entire trailer is 1-2 seconds off throughout, making it look amateurish
+**(b) OAuth2 token expiry (Freesound requires OAuth2 for full-quality downloads):**
+Freesound's OAuth2 access tokens expire after 24 hours. The refresh token must be stored and used to obtain a new access token. If the stored token is stale and no refresh logic is implemented, all download attempts fail with HTTP 401 Unauthorized. This is a silent failure for users who ran the tool yesterday and now re-run it on a new film.
 
-**Warning signs:**
-- First/last frame of clips shows a clearly different shot than expected
-- Audio from one scene plays over video from an adjacent scene
-- `--review` mode output doesn't match final conform output
-- Film has VFR (check with `ffprobe -v error -select_streams v -show_entries stream=r_frame_rate,avg_frame_rate`)
+**(c) Rate limiting:**
+Freesound enforces 60 requests/minute and 2000 requests/day. A batch run generating trailers for multiple films in a row, each for different vibes, can exhaust the daily quota. The API returns HTTP 429 with no automatic retry. Unhandled, this looks identical to a generic network error.
+
+**(d) Track unavailability:**
+A specific track ID hardcoded for a vibe may be removed by its uploader, DMCA-d, or made private after the initial track selection was made. The download returns HTTP 404. If the track selection logic is hardcoded to a specific Freesound ID rather than a search query, the entire vibe breaks permanently when that track disappears.
+
+**(e) Downloaded file format mismatch:**
+Freesound hosts sounds in their original format (MP3, OGG, FLAC, WAV — whatever the uploader provided). The downloaded file may not be the expected format. Code that assumes `.mp3` and tries to open a `.flac` file will fail.
 
 **Prevention:**
-1. **Force CFR during proxy creation** with `-vsync cfr` or `-r 24` (matching source FPS). Verify the proxy frame count matches expected `duration * fps`.
-2. **Use PTS-based timecodes, not frame numbers.** Store timecodes in the manifest as seconds with millisecond precision (e.g., `"start_time": 3723.456`), not frame indices.
-3. **For the final conform, use `-ss` before `-i` for fast seeking, but add `-noaccurate_seek` awareness.** Test both `-ss` before and after `-i` for your specific source format. `-ss` after `-i` is slower but frame-accurate.
-4. **Validate timecodes with a spot-check step.** After manifest generation, extract 3-5 thumbnails from the SOURCE at manifest timecodes and compare them against the proxy frames that were analyzed. Flag discrepancies.
-5. **Normalize VFR to CFR at ingest.** If `r_frame_rate != avg_frame_rate`, warn the user and force CFR conversion as the first pipeline step.
-6. **Store the proxy's exact frame rate and timescale in the manifest metadata** so the conform step can compensate.
+1. Cache music tracks to a permanent per-vibe location (e.g. `~/.cinecut/music/<vibe>.<ext>`). On second run, use the cached track without any API call. Never download the same vibe track twice.
+2. Make music a "best-effort" feature: if download fails for any reason (network error, 401, 404, 429), log a warning and continue the pipeline without a music bed rather than aborting. The trailer is still valid without music.
+3. Use a search query approach rather than hardcoded track IDs: query `"vibe_name cinematic music"` and download the first result that matches format requirements. This is resilient to individual track deletion.
+4. Store OAuth2 tokens (access + refresh) in a config file (`~/.cinecut/config.json`). On each API call, check token expiry and auto-refresh before the call. Wrap all API calls in a decorator that handles 401 by refreshing once and retrying once.
+5. Handle HTTP 429 explicitly: parse the `Retry-After` header (if present) and either wait the specified seconds (for short waits < 60s) or skip and use cached/fallback track.
+6. After download, verify the file with `ffprobe -show_format` before caching. If ffprobe fails, discard and retry. Convert to a canonical format (48000Hz mono or stereo WAV) immediately after download so downstream code always receives a known format.
 
-**Detection:** Compare `ffprobe` frame counts between proxy and source. Any mismatch >1 frame per minute of content indicates a drift problem.
+**Detection:** Log every API call with status code and response time. Log cache hit/miss status. Any 4xx or 5xx response should be user-visible as a warning, not a silent failure.
 
-**Phase:** Phase 1 (proxy pipeline design) and Phase 4 (conform step). The proxy creation decisions in Phase 1 directly determine whether Phase 4 can be frame-accurate.
+**Phase:** Phase 3 of v2.0 (Music Bed / Royalty-Free Archive). The caching and graceful-degradation strategy must be built before any API integration is deployed.
 
 ---
 
-### Pitfall 5: FFmpeg Command Construction Injection and Escaping Failures
+### Pitfall V2-6: Protagonist VO Extraction — Background Music Bleed, Codec Edge Cases, and Duration Clipping
 
-**What goes wrong:** FFmpeg commands are built by string concatenation or f-strings using user-provided filenames, timecodes, and filter expressions. Special characters in filenames (spaces, quotes, brackets, unicode) break the command. Worse, if subtitle files or LUT paths contain shell metacharacters, they can cause shell injection when passed through `subprocess.run(shell=True)`.
+**What goes wrong:** VO extraction pulls a protagonist dialogue segment from the film's audio track at subtitle-defined timestamps and uses it as a VO layer in the trailer. Several things can go wrong:
 
-**Why it happens:** FFmpeg's command-line syntax is complex. Filter graphs use their own escaping rules (colons, backslashes, semicolons have special meaning). Developers often test with clean filenames and never encounter the issue until a user provides `Movie (2024) [1080p].mkv` or `C'est la Vie.srt`.
+**(a) Background music and ambient sound are extracted alongside the dialogue:**
+FFmpeg extracts the complete audio mix at the given timestamp — it has no way to isolate the voice from the background score. A dramatic scene where the protagonist speaks over a swelling orchestral track produces a VO clip that is 40-60% music. When this is mixed into the trailer's music bed, the film's original score bleeds into the new music bed, creating a cacophonous double-score effect. This is not fixable in FFmpeg alone — source separation would require a neural network (out of scope for local-only).
 
-**Consequences:**
-- Pipeline crashes on filenames with spaces or special characters (most common user complaint)
-- Shell injection vulnerability if `shell=True` is used
-- LUT filter application fails silently when .cube file path contains spaces
-- Subtitle burn-in fails on ASS files with backslashes in style definitions
+**(b) Very short segments (< 1s) cause loudnorm to fail:**
+The existing v1.0 code already uses a fallback for segments < 3s (single-pass with volume=0dB instead of two-pass loudnorm). For VO segments that are < 0.5s (individual short utterances common in action dialogue), even single-pass loudnorm produces artifacts. Short AAC frames have boundary issues at segment edges.
 
-**Warning signs:**
-- Works perfectly with test files, fails on first real user input
-- FFmpeg errors mentioning "No such file or directory" despite the file existing
-- Filter graph parsing errors (`Invalid filtergraph`)
+**(c) AAC stream copy with `-ss` before `-i` produces incorrect start offset:**
+Using `-ss <start> -i <source> -t <dur> -c:a copy -vn` for audio-only extraction with stream copy has a known FFmpeg behavior: when `-ss` is placed before `-i` (input seeking), the seeking lands on the nearest keyframe before the timestamp. With AAC at 1024 samples per frame (~21ms at 48kHz), this can shift the actual audio start by up to 21ms. For very short VO segments (under 1s), a 21ms offset is noticeable. Using `-c:a aac` (re-encode) instead of `-c:a copy` with output seeking (`-ss` after `-i`) eliminates this but is slower.
+
+**(d) Codec mismatch when the source file has AC3, DTS, or EAC3 audio:**
+Many MKV rips have AC3 or DTS 5.1 audio. Stream-copying these to a separate audio file intended for mixing requires the container to support the codec (e.g. AC3 in an MKV or MP4 with appropriate container support). If the output format is `.wav` or `.aac`, stream copy fails. If re-encoding is used, the channel layout must be explicitly downmixed to stereo (`-ac 2`) or the audio has 6 channels that most FFmpeg filter chain assumptions break on.
 
 **Prevention:**
-1. **Never use `shell=True` with subprocess.** Always pass arguments as a list:
-   ```python
-   subprocess.run(["ffmpeg", "-i", input_path, ...])  # CORRECT
-   subprocess.run(f"ffmpeg -i {input_path} ...", shell=True)  # WRONG
-   ```
-2. **For FFmpeg filter graphs,** use FFmpeg's escaping rules. Colons in paths must be escaped as `\\:`. Use a helper function:
-   ```python
-   def ffmpeg_escape_path(path: str) -> str:
-       return path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
-   ```
-3. **Validate all filenames at CLI entry.** Reject or warn about filenames that will cause FFmpeg issues, or copy to a sanitized temp path.
-4. **Test with adversarial filenames** during development: spaces, parentheses, brackets, quotes, unicode characters, very long paths.
+1. Accept that VO extraction includes background audio. This is an inherent limitation of single-channel extraction from a mixed audio track. Compensate by setting VO volume conservatively low in the mix (-6dB relative to music bed) and positioning VO segments only during music bed lulls or explicitly ducked sections. Do not try to isolate voice — it is out of scope.
+2. For all VO segments, regardless of duration, always re-encode to AAC 48000Hz stereo using `-c:a aac -ar 48000 -ac 2`. Never use stream copy for VO extraction. The consistency guarantees downstream mixing will always work.
+3. Use output seeking for VO extraction (place `-ss` after `-i`): this is slower but frame-accurate. VO segments are typically 1-8 seconds — output seeking overhead is 1-5 seconds of decode, which is acceptable for accuracy.
+4. Enforce a minimum VO segment duration of 0.8s. If the subtitle event spans less than 0.8s, expand symmetrically (0.2s padding on each side) before extraction. Never extract sub-0.5s VO segments.
+5. Explicitly downmix multi-channel sources: always add `-af "pan=stereo|c0=c0+c2+0.7*c4|c1=c1+c3+0.7*c5"` for 5.1 → stereo downmix, or simply `-ac 2` for generic downmix.
+6. After extraction, verify with `ffprobe -show_entries stream=duration,channels,sample_rate` that the extracted file matches expectations. A 0-duration file or 0-channel file should trigger a warning and skip that VO segment.
 
-**Detection:** Unit test the FFmpeg command builder with a suite of pathological filenames.
+**Detection:** Log every VO extraction with: source timestamp, duration, channels detected in source, and whether re-encode or copy was used. Flag anything under 0.5s or with channels != 2 after extraction.
 
-**Phase:** Phase 1 (FFmpeg wrapper design). Must be correct from the start -- every subsequent phase depends on reliable FFmpeg execution.
+**Phase:** Phase 3 of v2.0 (Protagonist VO Extraction).
 
 ---
 
-## Moderate Pitfalls
+## Moderate Pitfalls (v2.0)
 
 ---
 
-### Pitfall 6: Keyframe Extraction Disk Space Exhaustion
+### Pitfall V2-7: SceneDescription Persistence — Stale Cache and Schema Migration
 
-**What goes wrong:** Extracting keyframes from a 2-hour film at even 1 frame per second produces 7,200 PNG images. At 420p, each PNG is ~200-500KB. Total: 1.5-3.5GB of temporary images per film. If the pipeline doesn't clean up after itself, or if it crashes mid-extraction, these files accumulate. Running the tool on multiple films fills the disk.
+**What goes wrong:** v2.0 adds SceneDescription persistence so that resume after crash skips re-running LLaVA inference. The persistence is implemented as a JSON file alongside the manifest. Two failure modes are particularly insidious because they produce wrong output silently:
 
-**Why it happens:** The naive approach (`ffmpeg -vf fps=1 frame_%05d.png`) writes all frames first, then processes them. Developers forget to add cleanup. Crash-recovery paths skip cleanup. Users run the tool repeatedly during testing.
+**(a) Stale cache when source file changes:**
+The user re-runs the pipeline on the same output path but with a different source file (updated cut of the film, replaced MKV). The work directory hash is based on source path, not source content. If the source file path is the same but the mtime has changed, the cached SceneDescriptions describe the old film and are applied to the new film's keyframes. Zone matching produces structurally plausible but factually wrong assignments (scenes are mapped to wrong zones based on descriptions from a different version of the film).
 
-**Consequences:**
-- Disk full errors mid-pipeline (FFmpeg writes a truncated image, LLaVA analyzes garbage)
-- `/tmp` fills up, affecting the entire system
-- Slow filesystem performance as directories accumulate thousands of small files
-- Filename collisions if multiple runs target the same output directory
-
-**Warning signs:**
-- Disk usage growing by several GB per run
-- Slow file listing in the temp directory
-- `OSError: [Errno 28] No space left on device`
+**(b) Schema evolution corrupts old caches:**
+During v2.0 development, the SceneDescription schema will evolve. A cache written with the initial schema (fields: `visual_content`, `mood`, `action`, `setting`) becomes incompatible when a new field is added (`zone_classification: str`) or a field is renamed. Pydantic will raise a `ValidationError` on load, crashing the pipeline. Or worse: if the new field is `Optional`, Pydantic succeeds but the zone_classification is `None` for all cached entries, producing empty zone assignments that default to `BEGIN_T` and defeat the entire two-stage pipeline.
 
 **Prevention:**
-1. **Use Python's `tempfile.mkdtemp()` for each run.** This guarantees unique directories and enables easy cleanup.
-2. **Process keyframes in a streaming fashion** -- extract one (or a small batch), analyze with LLaVA, delete the image, then extract the next. Never materialize all 7,200 frames simultaneously.
-3. **Register cleanup with `atexit`** and in signal handlers (SIGINT, SIGTERM) so interrupted runs still clean up.
-4. **Don't extract every frame.** Extract only I-frames (keyframes) with `-vf "select=eq(pict_type,I)"` or use scene detection (`-vf "select=gt(scene,0.3)"`) to reduce frame count by 10-50x.
-5. **Use JPEG instead of PNG** for analysis frames. LLaVA doesn't need lossless input. JPEG at quality 80 is ~5x smaller.
-6. **Check available disk space before extraction** and warn if below a threshold (e.g., 10GB free).
+1. Cache key must include content hash, not just path. Use: `hash(source_path + str(source_stat.st_mtime) + str(source_stat.st_size))`. If either mtime or size changes, the cache is invalid and must be regenerated. This is the same atomic-checkpoint pattern already in v1.0 (`checkpoint.py`).
+2. SceneDescription cache file must include a `schema_version` field (e.g. `"v2.1"`). On load, compare against the current schema version constant in `inference/models.py`. If versions differ, log a warning and force full re-inference rather than loading stale data.
+3. Use Pydantic `model_validate()` in strict mode on cache load — any validation failure (missing field, wrong type) should trigger cache invalidation and re-inference, not a crash or silent default.
+4. Define a clear migration policy: cache schema version mismatches always trigger full re-inference. Do not attempt to migrate old cache entries — inference cost is the lesser evil compared to silent wrong output.
+5. Cache file must be written atomically using `os.replace()` from a temp file, same as the manifest, to prevent partial writes that look like valid JSON but are corrupted mid-write.
+6. Include in the cache file: the source file path, the source file mtime, the source file size, the schema version, and the total number of frames described. On load, verify all five fields before trusting the cache.
 
-**Detection:** Log total disk usage of temp directories. Alert if >5GB per run.
+**Detection:** On every pipeline run, log whether SceneDescription cache was loaded (hit) or regenerated (miss) and why. Log the cache key values used for the match.
 
-**Phase:** Phase 2 (keyframe extraction). Design the extraction strategy before writing the inference loop.
+**Phase:** Phase 1 of v2.0 (SceneDescription Persistence). Must be implemented before any zone-matching work begins, because the two-stage pipeline depends on reliable cached scene descriptions.
 
 ---
 
-### Pitfall 7: Subtitle Parsing Edge Cases -- Encoding, Overlapping Cues, Malformed Files
+### Pitfall V2-8: SFX Synthesis — Sample Rate Mismatch, Duration Mismatch, and Pipe Deadlock
 
-**What goes wrong:** Real-world SRT/ASS files are messy. Common issues: (a) encoding is not UTF-8 (Latin-1, Windows-1252, Chinese GB2312), (b) SRT files have overlapping timestamp ranges, (c) ASS files use non-standard formatting tags that break parsers, (d) timestamps are malformed (missing milliseconds, reversed start/end), (e) HTML tags in SRT text (`<i>`, `<b>`), (f) BOM (byte order mark) at file start.
+**What goes wrong:** Transition SFX are synthesized via FFmpeg's `lavfi` source filters (sine, noise) or piped through SoX. Three failure modes:
 
-**Why it happens:** Subtitle files come from many sources: fan communities, professional subtitling houses, DVD/Blu-ray rips, streaming downloads. There is no enforcement of standards. The SRT "format" is not formally specified at all -- it's a de facto standard with many dialects.
+**(a) Sample rate mismatch between synthesized SFX and film audio:**
+FFmpeg's `lavfi` generates audio at a default sample rate that may differ from the film's audio sample rate. The `sine` source generates at 44100Hz by default. If the rest of the pipeline uses 48000Hz, the SFX sounds slightly off-pitch when mixed (44100 interpreted as 48000 plays at 108.84% speed). The pitch shift is ~0.73 semitones — subtle but audible.
 
-**Consequences:**
-- Narrative analysis misses or misinterprets dialogue
-- Crash on encoding errors (`UnicodeDecodeError`)
-- Overlapping cues cause duplicate text, inflating the importance of repeated dialogue
-- Missing timestamps mean the system can't map dialogue to video timecodes
-- ASS style overrides parsed as literal text (e.g., `{\an8}` appearing in narrative analysis)
+**(b) Synthesized SFX duration does not match the transition it covers:**
+A transition SFX synthesized for a 0.5s crossfade is not automatically trimmed to 0.5s. If the synthesis command produces a 1.0s audio file (common with FFmpeg's lavfi + `-t` flag edge cases), the SFX extends into the next clip's audio. For fade-to-black transitions, a whoosh SFX that is 0.3s too long makes the next clip's first line of dialogue sound like it begins mid-effect.
 
-**Warning signs:**
-- `UnicodeDecodeError` on first run with a real subtitle file
-- Parsed dialogue contains formatting artifacts (`<i>`, `{\an8}`, `{\\pos(320,50)}`)
-- Timeline has gaps or overlaps when visualized
-- Subtitle text is empty after parsing (encoding mismatch produced empty strings)
+**(c) SoX pipe deadlock when FFmpeg writes to stdout and SoX reads from stdin without a proper pipe:**
+If synthesis involves piping FFmpeg output into SoX for processing (e.g. adding reverb to a synthesized tone), the standard deadlock scenario applies: if both processes write to an unbuffered pipe simultaneously and the pipe buffer fills, both processes block. This only happens with larger audio files but is silent — the pipeline hangs indefinitely with no error.
 
 **Prevention:**
-1. **Use `chardet` or `charset_normalizer` for encoding detection.** Try UTF-8 first, fall back to detected encoding, and always decode to UTF-8 internally.
-2. **Use `pysubs2` for parsing,** not a hand-rolled parser. It handles both SRT and ASS, strips formatting tags, and normalizes timestamps. It is well-maintained and handles most edge cases.
-3. **Strip all formatting tags** after parsing. For SRT: remove HTML tags. For ASS: remove override blocks (`{\\...}`).
-4. **Handle overlapping cues** by merging overlapping entries or taking the longer one. Don't duplicate text.
-5. **Validate after parsing:** Check that at least 80% of cues have non-empty text and valid timestamps. If not, warn the user that the subtitle file may be corrupt.
-6. **Handle BOM explicitly:** Open files with `encoding='utf-8-sig'` as the first attempt (this strips BOM automatically).
+1. Always explicitly specify `-ar 48000` on every `lavfi` source synthesis command. Never rely on FFmpeg's default sample rate for generated audio. Canonical rule: all audio in this pipeline is 48000Hz stereo AAC.
+2. Use `-t <exact_duration>` in the FFmpeg synthesis command to match the transition duration precisely. Verify the output duration with `ffprobe` after generation — if it differs from target by more than 50ms, regenerate or trim.
+3. If SoX is used for post-processing, avoid pipes. Write FFmpeg output to a temp file, then run SoX as a separate process reading from the temp file. This eliminates pipe deadlock at the cost of one extra disk write per SFX (negligible for <10s files).
+4. For SFX synthesis, prefer FFmpeg-native lavfi over SoX integration. FFmpeg can synthesize sine tones, filtered noise, and AM-modulated tones entirely within a single process invocation. SoX adds a dependency and pipe complexity for marginal benefit on short synthesis tasks.
 
-**Detection:** Log subtitle parse statistics: total cues, empty cues, encoding detected, overlap count.
+**Example FFmpeg-only SFX synthesis (whoosh transition):**
+```
+ffmpeg -y -f lavfi -i "sine=frequency=200:duration=0.5,afade=t=in:d=0.1,afade=t=out:st=0.4:d=0.1" \
+  -ar 48000 -ac 2 -c:a aac transition_whoosh.aac
+```
 
-**Phase:** Phase 1 (input processing). Subtitle parsing is upstream of everything -- bad parsing corrupts all downstream analysis.
+**Detection:** After every SFX synthesis, run `ffprobe -show_entries stream=duration,sample_rate,channels` on the output and assert: duration within 50ms of target, sample_rate == 48000, channels == 2.
+
+**Phase:** Phase 3 of v2.0 (Transition SFX). The audio format contract (48000Hz, stereo, AAC) must be enforced at synthesis time, not at mix time.
 
 ---
 
-### Pitfall 8: LLaVA Prompt Engineering -- Hallucination, Context Overflow, and Inconsistent Output Format
+### Pitfall V2-9: Two-Stage LLM Context Budget — Text Model Overload and Zone Classification Instability
 
-**What goes wrong:** LLaVA is asked to describe a keyframe image for narrative analysis. Failure modes: (a) the model hallucinates details not present in the image (especially for dark/blurry frames), (b) the prompt + image tokens exceed the context window, causing truncated or incoherent output, (c) the output format varies between invocations (sometimes JSON, sometimes prose, sometimes bullet points) despite instructions, (d) the model describes the frame literally ("a dark rectangle") instead of narratively.
+**What goes wrong:** The text-only structural analysis model receives the full subtitle corpus (potentially 1,000-3,000 subtitle events from a 2-hour film) to classify scenes into structural zones. Two failure modes:
 
-**Why it happens:** Vision-language models are not deterministic. Dark or ambiguous frames provide weak visual signal. The context window of smaller LLaVA variants (7B) is typically 2048-4096 tokens. Image tokens consume a large portion (~576 tokens for a 336x336 image with CLIP-ViT-L). If you also pass subtitle context + previous frame descriptions, you easily overflow. Format compliance is inherently unreliable with smaller models.
+**(a) Context window overflow:**
+A 2-hour film typically generates 1,800-2,400 subtitle lines. At roughly 15 tokens per subtitle line (timestamp + text), that is 27,000-36,000 tokens. Most lightweight LLaMA models (1B-3B parameters) have a context window of 2,048-8,192 tokens. The full subtitle corpus does not fit. The model silently truncates its input context, meaning the latter half of the film (Acts 2 and 3) is never analyzed. The zone classification assigns nearly all content to BEGIN_T because the model only sees the beginning.
 
-**Consequences:**
-- Scene descriptions don't match actual content -- trailer selects wrong moments
-- Context overflow causes model to ignore instructions (format, content focus)
-- Inconsistent output format breaks downstream JSON parsing
-- Dark/action scenes (exactly the ones most important for trailers) get the worst descriptions
-
-**Warning signs:**
-- LLaVA output varies wildly in structure between frames
-- JSON parsing failures on llama-cli output
-- Scene descriptions mention objects/people not in the frame
-- Output length varies from 10 to 500+ tokens unpredictably
+**(b) Zone classification is sensitive to prompt framing:**
+The text-only model must produce structured zone labels (BEGIN_T, ESCALATION_T, CLIMAX_T). Small changes in prompt wording (e.g. "classify" vs "categorize", "zones" vs "sections") produce dramatically different outputs from small models. A model that works correctly with one prompt may produce all-ESCALATION_T classifications if the prompt is slightly rephrased during a refactor.
 
 **Prevention:**
-1. **Keep prompts minimal.** Do not try to cram subtitle context + instructions + format requirements into one prompt. The image tokens already consume a large chunk. A good prompt is 100-200 tokens max.
-2. **Use a fixed output schema** with explicit delimiters, not JSON. JSON is unreliable from small models. Use a simple template:
-   ```
-   SCENE_TYPE: [action/dialogue/establishing/transition]
-   MOOD: [one word]
-   DESCRIPTION: [one sentence]
-   INTENSITY: [1-5]
-   ```
-3. **Pre-filter frames before sending to LLaVA.** Calculate average brightness and contrast. Skip frames that are nearly black (common during fades). Skip frames that are nearly identical to the previous frame (static shots).
-4. **Set temperature to 0 (or as low as llama-cli allows)** for deterministic output. Use `--temp 0` flag.
-5. **Set `--max-tokens` to a reasonable limit** (150-200 tokens). This prevents runaway generation and keeps output focused.
-6. **Post-process output with simple regex/string matching.** Don't rely on the model always following the format. Parse what you can, use defaults for what you can't.
-7. **Separate vision analysis from narrative analysis.** LLaVA describes the image. A separate text-based pass (using subtitle data only, no image) handles narrative structure. Don't ask LLaVA to do both.
+1. Never send the full subtitle corpus to the text model in a single call. Chunk the subtitle corpus into segments of 50-100 events (representing roughly 5-10 minutes of film). Call the model once per chunk, receiving zone labels per chunk. This keeps each call well within 2K-4K tokens.
+2. Use a fixed, regression-tested prompt template stored as a constant in `inference/structural.py`. Any change to the prompt must be explicitly reviewed and tested against a known-good output. Do not allow prompt construction to vary based on runtime state.
+3. Validate zone label output: the model should return one of exactly three strings per scene chunk. If the output contains anything else, retry once with temperature lowered to 0. If the retry also fails, assign the default zone for the film position (beginning 33% → BEGIN_T, middle 33% → ESCALATION_T, final 33% → CLIMAX_T) and log a warning.
+4. Measure and document the context window of the specific model being used. Store this as a constant (`TEXT_MODEL_CONTEXT_TOKENS = 4096`). The chunking logic must compute chunk sizes from this constant, not from a hardcoded estimate.
 
-**Detection:** Log output token count per frame. Flag frames where output parsing fails. Track hallucination rate by spot-checking a sample of descriptions against actual frames.
+**Detection:** Log the number of tokens in each call payload (approximated as `len(text.split()) * 1.3`). Flag any call where estimated token count exceeds 80% of the model's context window.
 
-**Phase:** Phase 2 (inference pipeline). Prompt engineering is iterative -- budget time for experimentation.
+**Phase:** Phase 1 of v2.0 (Two-Stage LLM Pipeline).
 
 ---
 
-### Pitfall 9: Audio/Video Sync Drift in the Conform Step
+### Pitfall V2-10: Silence Segments as Deliberate Editorial Tool — Duration Precision and A/V Sync Gap
 
-**What goes wrong:** The final trailer is assembled by concatenating clips extracted from the source file. Each clip is independently extracted with FFmpeg. When concatenated, audio drifts out of sync -- sometimes by a few frames, sometimes by entire seconds. The drift accumulates with each clip.
+**What goes wrong:** v2.0 adds deliberate silence segments (black video, no audio) as editorial breathing room. These are generated with FFmpeg lavfi (`color=c=black:duration=X`). Two failure modes:
 
-**Why it happens:** Multiple causes compound:
-- **Audio frame boundaries don't align with video frames.** AAC audio has 1024-sample frames (~23ms at 48kHz). If a video clip starts at a frame boundary that doesn't align with an AAC frame boundary, FFmpeg pads or truncates the audio, introducing a small offset.
-- **Variable audio sample rate in source.** Some MKV files have audio streams with slightly irregular sample timing.
-- **Concatenation without re-encoding.** Using the `concat` demuxer on clips with different GOP structures or audio frame alignments causes cumulative drift.
-- **Using `-c copy` for the final output.** Stream copy skips re-encoding but cannot fix timestamp irregularities.
+**(a) Fractional duration causes A/V desync in concatenation:**
+A silence segment specified as `duration=1.5` may be generated with a fractional-frame duration (e.g. 1.5008s for 24fps) due to PTS rounding. When concatenated with clips re-encoded at exactly 1.5s using `-t 1.5`, the silence segment is slightly longer. Over multiple silence segments, this accumulates into visible A/V sync drift (video finishes before audio or vice versa).
 
-**Consequences:**
-- Dialogue doesn't match lip movement (noticeable at >2 frames / ~80ms of drift)
-- Sound effects and music hits land on wrong visuals
-- Professional-looking trailer ruined by amateur sync issues
-
-**Warning signs:**
-- Audio feels "slightly off" in the last third of the trailer
-- `ffprobe` shows different durations for audio and video streams in individual clips
-- Concatenated output has brief audio glitches at cut points
+**(b) Silence segment treated as a clip in audio mixing causes timing offset:**
+If the music bed mixing step counts silence segments as regular clips and tries to apply audio extraction to them (they have no audio stream), `ffprobe` returns no audio stream duration, causing a division by zero or index error in the music timing calculation.
 
 **Prevention:**
-1. **Re-encode both audio and video in the final conform step.** Do NOT use `-c copy`. The quality cost of re-encoding is negligible compared to sync issues.
-2. **Extract clips with PTS-based timestamps.** Use `-af asetpts=PTS-STARTPTS` and `-vf setpts=PTS-STARTPTS` to reset timestamps per clip.
-3. **Use the `concat` filter (not the concat demuxer)** for joining clips. The filter re-encodes and handles timestamp normalization. The demuxer does stream copy and inherits all source timing problems:
-   ```
-   ffmpeg -i clip1.mp4 -i clip2.mp4 -filter_complex "[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1" output.mp4
-   ```
-4. **Normalize audio sample rate** during clip extraction with `-ar 48000`.
-5. **Add a sync verification step** after assembly: extract audio and video durations from the final output and compare. They should match within 1 frame duration.
+1. Always round silence duration to the nearest frame boundary before generating: `silence_duration_s = round(target_duration_s * fps) / fps`. For 24fps content, 1.5s becomes `round(1.5 * 24) / 24 = 36/24 = 1.5` exactly. Prevents fractional-frame accumulation.
+2. Silence segments must be generated with explicit frame rate matching the source: `-r <fps>` in the lavfi command.
+3. Tag silence segments in the manifest with a `is_silence: bool` field. The music bed mixing step must skip silence segments during any per-clip audio calculations and simply continue the music bed timeline through them (they contribute duration but no audio source).
+4. Generate silence segments with an explicit silent audio stream included (`-f lavfi -i "anullsrc=r=48000:cl=stereo" -t X`) so every segment has both video and audio streams. This makes the concatenation step treat them uniformly without special-casing.
 
-**Detection:** Compare audio and video stream durations in the final output with `ffprobe -show_entries stream=duration`. Difference should be <20ms.
-
-**Phase:** Phase 4 (conform/assembly). This is the last step but must be designed alongside clip extraction in Phase 2-3.
+**Phase:** Phase 2 of v2.0 (Silence/Breathing Room). Address in the same phase as BPM grid — silence segments interact directly with the beat grid timing.
 
 ---
 
-### Pitfall 10: LUT Application Color Space Mismatches
-
-**What goes wrong:** A .cube LUT file is designed for a specific input color space (typically Rec.709 or log). When applied to video in a different color space, the output looks wrong -- crushed blacks, blown highlights, weird color casts. The trailer looks "filtered" rather than "graded."
-
-**Why it happens:** .cube LUT files are simple 3D lookup tables -- they have no metadata about expected input/output color spaces. If a LUT expects log-encoded input (common for cinematic LUTs) but receives Rec.709 gamma-encoded input, the transform produces incorrect results. Additionally, FFmpeg's `lut3d` filter doesn't perform any color space conversion -- it applies the LUT directly to whatever pixel values it receives.
-
-**Consequences:**
-- Trailer looks worse than the source material
-- Different source files produce wildly different results with the same LUT
-- Users blame the tool when the issue is LUT/color space mismatch
-- Dark scenes become completely unreadable
-
-**Warning signs:**
-- Output looks excessively dark or contrasty
-- Colors look "wrong" -- oversaturated or desaturated in unexpected ways
-- Same LUT looks different on different source files
-- Highlights clip to pure white abruptly
-
-**Prevention:**
-1. **Design LUTs for Rec.709 input.** Most consumer/prosumer video is Rec.709. Don't use LOG-input LUTs unless you add a linearization step.
-2. **Create/source LUTs specifically for this project.** Don't rely on random free LUTs from the internet -- they assume specific workflows (e.g., Blackmagic Film -> Rec.709). Create .cube files that transform Rec.709 to a stylized Rec.709 output.
-3. **Apply LUTs after all other processing** (scaling, deinterlacing, etc.) but before final encoding.
-4. **Use a conservative LUT intensity.** Apply the LUT at reduced strength by blending:
-   ```
-   -vf "split[a][b];[b]lut3d=file=vibe.cube[c];[a][c]blend=all_opacity=0.6"
-   ```
-   This ensures the LUT enhances rather than overwhelms the source material.
-5. **Test each LUT against at least 3 different source materials** (bright scene, dark scene, skin tones) before shipping.
-6. **Include a `--no-lut` flag** so users can bypass color grading if it causes issues.
-
-**Detection:** Visual QA. There is no automated way to detect "looks wrong." Provide sample frame previews during `--review` mode.
-
-**Phase:** Phase 3 (vibe profiles / LUT integration). LUTs should be one of the last features added because they're purely aesthetic.
+## Minor Pitfalls (v2.0)
 
 ---
 
-### Pitfall 11: JSON Manifest Schema Evolution and Integrity
+### Pitfall V2-11: BPM Grid and Non-Linear Ordering Interaction — Semantic Zones Override Rhythm
 
-**What goes wrong:** The TRAILER_MANIFEST.json is the critical intermediary artifact. As the project evolves, the schema changes (new fields, renamed fields, changed types). Old manifests become incompatible with new code. Additionally, manifests can be corrupted by: (a) partial writes if the process crashes mid-generation, (b) manual edits (via `--review`) introducing typos or invalid values, (c) floating point precision loss in timecodes.
+**What goes wrong:** The BPM edit grid distributes cuts on beat positions. The non-linear ordering algorithm distributes clips by semantic zone. When both systems run, they can conflict: the semantic ordering wants to place a 3.5s clip (fits 3 beats at 120BPM) at a position where the beat grid demands 2-beat slots (2s). The clip is either padded with silence (disrupts the beat feel) or trimmed (cuts off dialogue). Neither outcome is ideal, but the worse failure is the pipeline choosing silently rather than surfacing the conflict.
 
-**Why it happens:** JSON manifests are easy to create but hard to validate. The schema exists only implicitly in the code. Manual editing (a core feature of `--review`) means the system must tolerate human-introduced errors.
+**Prevention:** Design the zone ordering pass to run first, producing a clip sequence. Then the BPM grid pass trims or pads clips to fit beat slots, constrained by a minimum intelligibility duration (no clip under 0.8s, no trim that cuts spoken dialogue mid-word). Log all trims/pads so the human review step can see them.
 
-**Consequences:**
-- Conform step crashes on invalid manifest (after hours of inference work are already done)
-- Timecode precision loss (JSON floating point) causes frame-level inaccuracy
-- Schema changes break the `--review` workflow (user edits a manifest, schema changes, old edit is invalid)
-- Invalid manual edits produce cryptic FFmpeg errors rather than clear validation messages
-
-**Warning signs:**
-- `KeyError` or `TypeError` during conform step
-- Timecodes in output manifest differ slightly from inference calculations
-- Users report `--review` edits "not taking effect"
-
-**Prevention:**
-1. **Define a formal schema using Pydantic models.** Validate the manifest both after generation AND after `--review` editing:
-   ```python
-   class ClipEntry(BaseModel):
-       start_time: float  # seconds, 3 decimal places
-       end_time: float
-       scene_type: Literal["action", "dialogue", "establishing", "transition"]
-       intensity: int = Field(ge=1, le=5)
-   ```
-2. **Use `Decimal` or fixed-point representation for timecodes** in internal processing. Only convert to float at JSON serialization, with explicit rounding to 3 decimal places (millisecond precision).
-3. **Write manifest atomically.** Write to a temp file, then `os.replace()` to the final path. This prevents partial writes.
-4. **Include a schema version field** in the manifest. Validate version on load and provide migration or clear error messages for old versions.
-5. **After `--review`, re-validate the manifest** before proceeding to conform. Show clear, specific error messages: "Clip 7: end_time (125.400) is before start_time (130.200)".
-6. **Include a checksum or generation metadata** in the manifest so the system can detect if it was manually modified.
-
-**Detection:** Validation at every manifest read boundary (after generation, after review, before conform).
-
-**Phase:** Phase 2 (manifest design). The schema must be solid before building the inference loop or conform step.
+**Phase:** Phase 2 of v2.0 (BPM Grid + Ordering).
 
 ---
 
-## Minor Pitfalls
+### Pitfall V2-12: Music Bed Track Looping — Hard Loop Boundary Artifacts
+
+**What goes wrong:** A downloaded royalty-free track may be shorter than the assembled trailer (common — many royalty-free tracks are 60-90 seconds; trailers are ~120 seconds). Naively looping the track with FFmpeg's `aloop` filter produces an audible click at the loop boundary when the track does not loop seamlessly (different amplitude at end vs. start).
+
+**Prevention:** Use crossfade loop: fade the end of track iteration 1 into the start of track iteration 2 using `acrossfade=d=2.0` in the filter graph. Alternatively, select tracks from the archive that are long enough for the target trailer duration (flag tracks under 90 seconds as requiring loop handling).
+
+**Phase:** Phase 3 of v2.0 (Music Bed).
 
 ---
 
-### Pitfall 12: CLI UX -- Progress Reporting for Long Operations
+### Pitfall V2-13: lut_path Escaping Breaks when SFX and Music File Paths Enter the Same Filter Graph
 
-**What goes wrong:** Processing a 2-hour film can take 30-60+ minutes (proxy creation + hundreds of inference calls + conform). The CLI shows no progress indication. Users think it's hung, kill the process, and restart -- wasting all completed work.
+**What goes wrong:** v1.0 has a known-safe FFmpeg command construction approach for LUT paths. v2.0 adds music bed paths and SFX paths into filter graph arguments. Paths with spaces or special characters in these new arguments re-introduce the escaping problem for the audio filter graph specifically. The existing `ffmpeg_escape_path()` helper (if it exists) may not be applied to audio filter paths — it was likely only applied to LUT paths.
 
-**Why it happens:** Developers test with short clips. They know the pipeline is working. Real users don't. A silent CLI processing for 45 minutes is indistinguishable from a hung process.
+**Prevention:** Apply path escaping to every path that enters any FFmpeg filter graph argument, not just LUT paths. Consider storing all audio asset paths in temp directories with sanitized names (no spaces, no special characters) to eliminate the risk at the source.
 
-**Prevention:**
-1. **Show progress bars** for each pipeline phase (proxy creation, keyframe extraction, inference, conform). Use `tqdm` or `rich.progress`.
-2. **Print ETA estimates** based on completed/remaining work.
-3. **Log to a file simultaneously.** If something goes wrong, the user has a log to report.
-4. **Support `Ctrl+C` gracefully.** Catch SIGINT, clean up temp files, report what was completed.
-5. **Consider checkpoint/resume.** Save inference results incrementally so a crashed run can resume from where it left off.
-
-**Phase:** Phase 1 (CLI skeleton). Bolting on progress reporting later requires threading it through every function.
+**Phase:** Phase 2 of v2.0 (Audio Architecture). Audit the FFmpeg builder for audio filter path handling.
 
 ---
 
-### Pitfall 13: FFmpeg Version Incompatibilities
-
-**What goes wrong:** Different FFmpeg versions have different filter syntax, codec support, and default behaviors. A command that works on FFmpeg 5.x may fail on FFmpeg 4.x or behave differently on FFmpeg 6.x. The `lut3d` filter, `scene` detection, and concat filter syntax have all changed between major versions.
-
-**Why it happens:** FFmpeg is often installed via system package managers (which may be outdated) or built from source (which may be bleeding edge). There is no universal "current version."
-
-**Prevention:**
-1. **Detect FFmpeg version at startup.** Parse `ffmpeg -version` output and warn if below a minimum (e.g., 4.4+).
-2. **Test all FFmpeg commands against the minimum supported version.** Don't use features from unreleased or very recent FFmpeg.
-3. **Document the minimum FFmpeg version** in the project README and validate it in the CLI entrypoint.
-
-**Phase:** Phase 1 (environment validation).
-
----
-
-### Pitfall 14: Memory Leaks in Long-Running Python Pipeline
-
-**What goes wrong:** Processing a 2-hour film means the Python process runs for 30-60+ minutes. If frame data (images, decoded video buffers) is not properly released, memory usage grows linearly with film length. On a system already constrained by VRAM, running out of system RAM causes swap thrashing and extreme slowdown.
-
-**Why it happens:** Python's garbage collector handles most cases, but large numpy arrays (if used for image processing), byte buffers from subprocess stdout, and accumulated log strings can leak. Particularly dangerous: storing all keyframe analysis results in a growing list when they should be written to disk incrementally.
-
-**Prevention:**
-1. **Process frames in a streaming fashion.** Don't load all frames or all analysis results into memory simultaneously.
-2. **Write intermediate results to disk** (or append to the manifest) as they are produced.
-3. **Explicitly `del` large buffers** after use, especially subprocess output.
-4. **Monitor RSS during development** with `resource.getrusage()`. Flag if memory growth exceeds 100MB over baseline.
-
-**Phase:** Phase 2 (inference pipeline design).
-
----
-
-### Pitfall 15: Scene Detection Threshold Sensitivity
-
-**What goes wrong:** FFmpeg's `select=gt(scene,T)` filter is used to find scene changes for keyframe extraction. The threshold `T` dramatically affects results: too low (0.1) produces thousands of frames including every camera wobble; too high (0.5) misses subtle cuts and entire scenes. The optimal threshold varies by film -- action movies have rapid cuts, dialogue scenes have slow dissolves.
-
-**Why it happens:** Scene detection is based on inter-frame pixel difference. There's no universal threshold. Fast action, lens flares, and lighting changes trigger false positives. Slow dissolves and match cuts are false negatives.
-
-**Prevention:**
-1. **Use a moderate default threshold** (0.3) but make it configurable via CLI flag (`--scene-threshold`).
-2. **Apply a two-pass approach:** First pass with a low threshold to find candidates, second pass to cluster and de-duplicate frames within a time window (e.g., keep at most 1 frame per 2-second window).
-3. **Combine scene detection with I-frame extraction.** I-frames naturally occur at scene boundaries in well-encoded video.
-4. **Report the number of extracted keyframes** to the user so they can adjust the threshold if needed.
-5. **Set a maximum keyframe count** (e.g., 500) to prevent runaway extraction.
-
-**Phase:** Phase 2 (keyframe extraction). Requires experimentation with real film content.
-
----
-
-## Phase-Specific Warnings
+## Phase-Specific Warnings (v2.0)
 
 | Phase Topic | Likely Pitfall | Mitigation |
 |-------------|---------------|------------|
-| Environment Setup | CUDA 11.4 / Kepler compatibility (Pitfall 2) | Compile llama.cpp from source with sm_35. Validate before any other work. |
-| Proxy Pipeline | Timecode drift (Pitfall 4) | Force CFR, use PTS-based timecodes, validate proxy-source alignment |
-| Proxy Pipeline | FFmpeg escaping (Pitfall 5) | Never use shell=True. Build command as list. Test with pathological filenames. |
-| Proxy Pipeline | FFmpeg version (Pitfall 13) | Detect version at startup, document minimum version |
-| Keyframe Extraction | Disk space (Pitfall 6) | Streaming extraction, temp directories, cleanup handlers |
-| Keyframe Extraction | Scene detection sensitivity (Pitfall 15) | Configurable threshold, two-pass approach, frame cap |
-| Inference Pipeline | VRAM contention (Pitfall 1) | Sequential pipeline, CPU FFmpeg decode, GPU-only for inference |
-| Inference Pipeline | Subprocess management (Pitfall 3) | Timeouts, output validation, zombie cleanup |
-| Inference Pipeline | Prompt engineering (Pitfall 8) | Minimal prompts, fixed output schema, pre-filter dark frames |
-| Inference Pipeline | Memory leaks (Pitfall 14) | Streaming processing, incremental disk writes |
-| Manifest Design | Schema integrity (Pitfall 11) | Pydantic validation, atomic writes, schema versioning |
-| Vibe / LUT Integration | Color space mismatch (Pitfall 10) | Rec.709-input LUTs, blend intensity, `--no-lut` escape hatch |
-| Conform / Assembly | A/V sync drift (Pitfall 9) | Re-encode everything, concat filter (not demuxer), normalized sample rates |
-| CLI UX | Silent long operations (Pitfall 12) | Progress bars from Phase 1, Ctrl+C handling, checkpoint/resume |
+| Two-Stage LLM Pipeline | CUDA memory lingering between model swap (V2-1) | Poll nvidia-smi after first server stop; minimum 3s gap before second start |
+| Two-Stage LLM Pipeline | Text model context overflow (V2-9) | Chunk subtitle corpus into 50-100 event batches; never send full corpus in one call |
+| SceneDescription Persistence | Stale cache from changed source file (V2-7) | Cache key must include mtime + size hash, not just path |
+| SceneDescription Persistence | Schema migration corrupting old caches (V2-7) | schema_version field; version mismatch always triggers full re-inference |
+| Non-Linear Ordering | Audio bleed between reordered clips (V2-3) | Per-clip PTS reset + 0.1s audio fades on every extracted segment |
+| Non-Linear Ordering | Context-dependent dialogue selected for BEGIN_T (V2-3) | Filter pronoun-leading dialogue from zone assignments |
+| BPM Grid | Zero BPM from silent tracks / empty beats array (V2-4) | Guard against 0.0 BPM; fallback to vibe-default BPM |
+| BPM Grid | Octave errors (half/double tempo) (V2-4) | Clamp to vibe range; halve/double when outside bounds |
+| BPM Grid vs Ordering | Zone ordering conflicts with beat slot duration (V2-11) | Ordering first, BPM trimming second; log all trims |
+| Music Bed | API downtime / OAuth expiry / 429 rate limit (V2-5) | Cache tracks; graceful degradation to no-music on any API failure |
+| Music Bed | Loop boundary click on short tracks (V2-12) | Crossfade loop with acrossfade; flag tracks < 90s |
+| Audio Mixing | amix normalize=1 destroys ducking ratios (V2-2) | Always use normalize=0; apply volume filters before amix |
+| Audio Mixing | loudnorm on mixed output destroys dynamic range (V2-2) | Normalize each stem independently before mixing |
+| Audio Mixing | Sample rate mismatch across audio sources (V2-2) | Resample all audio to 48000Hz before any mixing filtergraph |
+| Audio Mixing | Music + SFX paths not escaped in filter graph (V2-13) | Extend path escaping helper to all filter graph arguments |
+| VO Extraction | Background score bleeds into VO clip (V2-6) | Accept limitation; lower VO volume in mix; position during music lulls |
+| VO Extraction | Short segment loudnorm artifacts (V2-6) | Always re-encode VO to AAC 48000Hz 2ch; minimum 0.8s duration |
+| VO Extraction | AAC frame-boundary seek offset (V2-6) | Use output seeking (-ss after -i) for VO extraction |
+| SFX Synthesis | Sample rate default 44100Hz from lavfi (V2-8) | Always specify -ar 48000 in every synthesis command |
+| SFX Synthesis | Duration mismatch — SFX too long for transition (V2-8) | Use -t <exact_duration>; verify with ffprobe after generation |
+| SFX Synthesis | SoX pipe deadlock (V2-8) | Write to temp file; never pipe FFmpeg → SoX |
+| Silence Segments | Fractional frame duration accumulation (V2-10) | Round to nearest frame boundary before generating |
+| Silence Segments | Missing audio stream causes mixer errors (V2-10) | Always generate silence segments with explicit anullsrc audio stream |
+
+---
+
+## Retained v1.0 Critical Pitfalls
+
+The following pitfalls from v1.0 research remain valid and should be revisited in v2.0 context where noted.
+
+### Pitfall 1: VRAM Contention Between llama-server and FFmpeg Hardware Decoding
+(See v1.0 PITFALLS — fully resolved in v1.0 via GPU_LOCK. v2.0 note: the two-stage pipeline introduces a new model-swap window where both sequential llama-server invocations must still be covered by GPU_LOCK. Do not release GPU_LOCK between stages.)
+
+### Pitfall 4: Timecode Drift Between Analysis Proxy and Source File
+(See v1.0 PITFALLS — v2.0 note: non-linear ordering increases the number of `source_start_s` / `source_end_s` lookups against the source file. Any timecode drift that was marginal in v1.0 becomes more visible when clips from across the full 2-hour timeline are randomly combined.)
+
+### Pitfall 9: Audio/Video Sync Drift in Conform Step
+(See v1.0 PITFALLS — v2.0 note: the addition of music bed and SFX audio tracks increases the number of audio inputs to the mixing filtergraph. The existing `-ar 48000 -avoid_negative_ts make_zero` pattern from `conform/pipeline.py` must be extended to all new audio sources.)
+
+### Pitfall 11: JSON Manifest Schema Evolution
+(See v1.0 PITFALLS — v2.0 directly triggers this. The v2.0 manifest additions (zone classification, BPM grid, music track reference, silence segment flags) require a schema version bump from `"1.0"` to `"2.0"`. Any v1.0 manifests on disk will fail validation against the v2.0 schema. This is expected and correct — handle it with a clear error: "This manifest was created with CineCut v1.0 and requires re-generation for v2.0 features.")
 
 ---
 
 ## Sources
 
-- Training data knowledge of FFmpeg, CUDA, llama.cpp, LLaVA, Python subprocess management (MEDIUM confidence -- WebSearch was unavailable for verification)
-- CUDA 11.4 Kepler deprecation is well-documented in NVIDIA release notes
-- FFmpeg filter graph escaping rules from FFmpeg documentation
-- LLaVA architecture details (image token count, context windows) from published papers
-- pysubs2 library known to handle SRT/ASS edge cases from community usage
-- A/V sync issues with concat demuxer vs filter are extensively documented in FFmpeg wiki and trac
+### Verified (WebSearch + official documentation)
 
-**Confidence note:** All findings in this document are based on training data up to early 2025. WebSearch was unavailable to verify against the latest library versions or community discussions. Recommendations should be validated against current documentation, especially for llama.cpp CUDA 11.4 support status which may have changed.
+- FFmpeg `amix` filter documentation — `normalize=0` default behavior, sample rate mismatch rejection: [FFmpeg Filters Documentation](https://ffmpeg.org/ffmpeg-filters.html)
+- Librosa `beat_track` edge cases — 0 BPM on silence, `trim=False` behavior, octave errors: [librosa 0.11.0 beat_track docs](https://librosa.org/doc/main/generated/librosa.beat.beat_track.html)
+- Freesound API rate limits (60 req/min, 2000 req/day, 429 response), OAuth2 token 24hr expiry, refresh token strategy: [Freesound APIv2 Overview](https://freesound.org/docs/api/overview.html), [Freesound Authentication](https://freesound.org/docs/api/authentication.html)
+- llama-server runtime model switching not natively supported; workarounds via process restart: [llama.cpp Issue #13027](https://github.com/ggml-org/llama.cpp/issues/13027), [llama.cpp Model Management blog](https://huggingface.co/blog/ggml-org/model-management-in-llamacpp)
+- Multimodal projector VRAM overhead (~1.9GB additional for mmproj): [llama.cpp multimodal docs](https://github.com/ggml-org/llama.cpp/blob/master/docs/multimodal.md)
+- SoX pipe streaming mode issues (size header absent in streaming, pipe buffer deadlock): [FFmpeg-user SoX resampler thread](https://ffmpeg-user.ffmpeg.narkive.com/N2TUbPVd/audio-resampler-sox-returns-different-result)
+- FFmpeg concat `setpts=PTS-STARTPTS` / `asetpts=PTS-STARTPTS` requirement for mixed-source concatenation: [FFmpeg FilteringGuide](https://trac.ffmpeg.org/wiki/FilteringGuide)
+- AAC frame boundary (~21ms) seeking offset with stream copy and input seeking: [FFmpeg documentation on -ss and -accurate_seek](https://www.ffmpeg.org/ffmpeg.html)
+
+### Training Data (MEDIUM confidence, not independently verified by WebSearch)
+
+- CUDA 11.4 / Kepler slow VRAM deallocation timing after process exit
+- llama.cpp context window sizes for 1B-3B text-only models
+- AC3/DTS to stereo downmix FFmpeg filter syntax
+- Film audio extraction background-score bleed characteristics
+
+---
+
+*Research completed: 2026-02-28*
+*Covers v2.0 feature additions. v1.0 pitfalls retained for reference. v2.0 pitfalls are additive, not replacements.*

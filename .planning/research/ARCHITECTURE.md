@@ -1,953 +1,780 @@
 # Architecture Patterns
 
 **Domain:** AI-driven video trailer generation pipeline (CLI tool)
-**Project:** CineCut AI
-**Researched:** 2026-02-26
+**Project:** CineCut AI — v2.0 Structural & Sensory Overhaul
+**Researched:** 2026-02-28
+**Scope:** Integration of v2.0 features into the existing 7-stage pipeline
 
-## Recommended Architecture
+---
 
-### High-Level Pipeline
+## Existing Architecture Baseline (v1.0)
 
-```
-                         CineCut CLI
-                             |
-              +--------------+--------------+
-              |              |              |
-         [Tier 1]       [Tier 2]       [Tier 3]
-      Ingestion &    Multimodal       High-Bitrate
-       Proxy Gen     Inference         Conform
-              |              |              |
-         420p proxy   TRAILER_       Final MP4
-         + keyframes  MANIFEST.json  at source res
-```
+Before mapping v2.0 integration points, the v1.0 architecture is documented here as the stable baseline.
 
-The system is a **strict sequential pipeline** with three well-defined tiers. Each tier produces artifacts that the next tier consumes. This is not a service architecture -- it is a batch processing pipeline where each stage has clear inputs, outputs, and failure modes.
-
-### Package/Module Structure
+### Current 7-Stage Pipeline
 
 ```
-cinecut/
-    __init__.py              # Package version, public API
-    __main__.py              # Entry point: python -m cinecut
-    cli.py                   # Click/Typer CLI definition, arg parsing
-    config.py                # Settings, paths, hardware detection
+Stage 1: proxy_creation        — FFmpeg 420p transcode, checkpoint "proxy"
+Stage 2: subtitle_parsing      — pysubs2 SRT/ASS parse, checkpoint "subtitles"
+Stage 3: keyframe_extraction   — OpenCV scene detect + JPEG extraction, checkpoint "keyframes"
+Stage 4: llava_inference       — llama-server HTTP, LLaVA multimodal, NO checkpoint (v1.0 gap)
+Stage 5: narrative_generation  — Score + classify, write TRAILER_MANIFEST.json, checkpoint "narrative"
+Stage 6: assembly              — Sort by act, enforce pacing, generate title_card.mp4 + button.mp4, checkpoint "assembly"
+Stage 7: conform               — FFmpeg extract+grade each clip (lut3d + loudnorm), concat demuxer
+```
 
-    pipeline/
-        __init__.py
-        orchestrator.py      # Pipeline coordinator, stage sequencing, resumability
-        state.py             # PipelineState dataclass, checkpoint serialization
+### Current Module Map
 
-    ingest/
-        __init__.py
-        proxy.py             # FFmpeg proxy generation (420p transcode)
-        keyframes.py         # Scene detection + keyframe extraction
-        subtitles.py         # SRT/ASS parser, dialogue timeline extraction
-
+```
+src/cinecut/
+    cli.py                      — Pipeline orchestrator and CLI entry point (Typer)
+    checkpoint.py               — PipelineCheckpoint dataclass, atomic save/load
+    models.py                   — DialogueEvent, KeyframeRecord dataclasses
+    errors.py                   — CineCutError hierarchy
+    ingestion/
+        proxy.py                — FFmpeg proxy creation
+        subtitles.py            — pysubs2 subtitle parser
+        keyframes.py            — OpenCV scene detection + extraction
     inference/
-        __init__.py
-        llava.py             # llama-cli subprocess management, prompt construction
-        batching.py          # VRAM-aware batch sizing, sequential frame inference
-        narrative.py         # Beat extraction (inciting incident, climax, money shots)
-        manifest.py          # TRAILER_MANIFEST.json generation and validation
-
+        engine.py               — LlavaEngine context manager (llama-server lifecycle + GPU_LOCK)
+        models.py               — SceneDescription dataclass + Pydantic TypeAdapter
+        vram.py                 — VRAM availability check
+        __init__.py             — GPU_LOCK threading.Lock definition
+    narrative/
+        generator.py            — run_narrative_stage() — manifest assembly pipeline
+        scorer.py               — assign_act(), classify_beat(), compute_money_shot_score()
+        signals.py              — RawSignals extraction, normalize_all_signals()
+    manifest/
+        schema.py               — ClipEntry, TrailerManifest Pydantic models (schema_version "1.0")
+        loader.py               — load_manifest() with validation
+        vibes.py                — VibeProfile frozen dataclass + 18 VIBE_PROFILES dict
+    assembly/
+        __init__.py             — assemble_manifest() orchestrator
+        ordering.py             — sort_clips_by_act(), enforce_pacing_curve()
+        title_card.py           — generate_title_card() via FFmpeg lavfi
     conform/
-        __init__.py
-        render.py            # High-bitrate FFmpeg assembly from manifest
-        audio.py             # LUFS normalization, audio ducking per vibe
-        lut.py               # LUT application (.cube file handling)
-
-    vibes/
-        __init__.py
-        profiles.py          # Vibe profile dataclass definitions
-        registry.py          # Profile loader, all 18 vibes registered
-        data/
-            action.yaml      # Per-vibe config files
-            drama.yaml
-            ...              # 18 total
-
-    ffmpeg/
-        __init__.py
-        runner.py            # FFmpeg subprocess execution, error handling
-        builder.py           # Fluent FFmpeg command builder
-        probe.py             # ffprobe wrapper for media info extraction
-
-    models/
-        __init__.py
-        manifest.py          # Pydantic model: TRAILER_MANIFEST.json schema
-        scene.py             # Pydantic model: scene analysis results
-        timeline.py          # Pydantic model: subtitle timeline, dialogue beats
-        vibe.py              # Pydantic model: vibe profile schema
-
-    utils/
-        __init__.py
-        progress.py          # Rich-based progress bars and status
-        tempfiles.py         # Temp directory lifecycle management
-        checkpoints.py       # Pipeline checkpoint save/restore
+        pipeline.py             — extract_and_grade_clip(), concatenate_clips(), conform_manifest()
+        luts.py                 — ensure_luts() LUT file generation
 ```
 
-**Rationale for this structure:**
-- Each pipeline tier maps to a top-level package (`ingest/`, `inference/`, `conform/`).
-- Cross-cutting concerns (`ffmpeg/`, `models/`, `utils/`) are separated from pipeline logic.
-- Vibe profiles get their own package because they are configuration-heavy and will grow.
-- The `models/` package holds all Pydantic schemas in one place -- everything serializable.
-- `pipeline/orchestrator.py` is the "main loop" that sequences tier execution with checkpointing.
+### Key v1.0 Constraints Relevant to v2.0
 
-## Component Boundaries
+- `GPU_LOCK` (threading.Lock in `inference/__init__.py`) prevents concurrent llama-server and FFmpeg
+- `LlavaEngine` starts llama-server on `__enter__`, holds GPU_LOCK for full inference duration
+- `PipelineCheckpoint` uses named stage strings ("proxy", "subtitles", "keyframes", "narrative", "assembly")
+- `TrailerManifest.schema_version = "1.0"` — must bump on schema change
+- `VibeProfile` is a frozen dataclass — adding fields requires unfreezing or creating v2 VibeProfile
+- Conform stage: `extract_and_grade_clip()` handles video + audio; no audio mixing beyond loudnorm
 
-| Component | Responsibility | Inputs | Outputs | Communicates With |
-|-----------|---------------|--------|---------|-------------------|
-| `cli` | Argument parsing, validation, user interaction | sys.argv | Validated config | orchestrator |
-| `pipeline/orchestrator` | Stage sequencing, checkpoint management, `--review` pause | Config + source files | Final trailer | All pipeline stages |
-| `pipeline/state` | Pipeline state serialization/deserialization | Stage results | JSON checkpoint file | orchestrator |
-| `ingest/proxy` | 420p proxy transcode | Source video | proxy.mp4 | ffmpeg/runner |
-| `ingest/keyframes` | Scene detection, keyframe image extraction | proxy.mp4 | keyframe PNGs + scene list | ffmpeg/runner, PySceneDetect |
-| `ingest/subtitles` | SRT/ASS parsing, dialogue timeline | Subtitle file | Structured dialogue data | narrative |
-| `inference/llava` | llama-cli process management | Keyframe images + prompts | JSON scene descriptions | batching |
-| `inference/batching` | VRAM-aware sequential processing | Scene list | Batched inference schedule | llava |
-| `inference/narrative` | Story arc detection from scenes + dialogue | Scene descriptions + dialogue | Narrative beat annotations | manifest |
-| `inference/manifest` | Manifest assembly and validation | Beats + vibe profile | TRAILER_MANIFEST.json | models/manifest |
-| `conform/render` | High-bitrate assembly from manifest | Manifest + source video | Final MP4 | ffmpeg/runner |
-| `conform/audio` | LUFS normalization, audio treatment | Audio streams | Processed audio | ffmpeg/runner |
-| `conform/lut` | LUT selection and application | Vibe profile | FFmpeg LUT filter chain | ffmpeg/builder |
-| `vibes/registry` | Vibe profile lookup and validation | Vibe name string | VibeProfile object | vibes/data/*.yaml |
-| `ffmpeg/runner` | Subprocess execution, error capture | FFmpeg command | Exit code + output | subprocess |
-| `ffmpeg/builder` | Fluent command construction | Builder method calls | FFmpeg command list | runner |
-| `ffmpeg/probe` | Media metadata extraction | File path | MediaInfo object | subprocess |
-| `models/*` | Data validation and serialization | Raw data | Typed Pydantic objects | All components |
+---
 
-## Data Flow
+## v2.0 Feature Integration Architecture
 
-### Complete Pipeline Data Flow
+### 1. Pipeline Stage Ordering — Where New Features Fit
+
+The v2.0 additions require **two new stages** and **modifications to three existing stages**. The new 9-stage pipeline:
 
 ```
-Source Video (MKV/AVI/MP4)     Subtitle File (SRT/ASS)
-        |                              |
-        v                              v
-  [ffmpeg/probe]                [ingest/subtitles]
-  MediaInfo extraction          Parse dialogue timeline
-        |                              |
-        v                              |
-  [ingest/proxy]                       |
-  420p proxy transcode                 |
-        |                              |
-        +----------+                   |
-        |          |                   |
-        v          v                   |
-  [ingest/       proxy.mp4             |
-   keyframes]      |                   |
-  Scene detect     |                   |
-  + extract        |                   |
-        |          |                   |
-        v          |                   v
-  keyframe_001.png |          DialogueTimeline
-  keyframe_002.png |          (list of timed dialogue)
-  ...              |                   |
-  SceneList        |                   |
-        |          |                   |
-        v          |                   |
-  [inference/      |                   |
-   batching]       |                   |
-  Schedule frames  |                   |
-  for VRAM budget  |                   |
-        |          |                   |
-        v          |                   |
-  [inference/      |                   |
-   llava]          |                   |
-  llama-cli calls  |                   |
-  per keyframe     |                   |
-        |          |                   |
-        v          |                   |
-  SceneDescriptions|                   |
-  (JSON per frame) |                   |
-        |          |                   |
-        +----------+-------------------+
-                   |
-                   v
-          [inference/narrative]
-          Beat extraction:
-          - Inciting incident
-          - Rising action
-          - Climax beats
-          - Money shots
-                   |
-                   v
-          NarrativeArc (typed beats)
-                   |
-                   v
-          [inference/manifest]
-          + VibeProfile from registry
-                   |
-                   v
-          TRAILER_MANIFEST.json
-                   |
-          [--review pause point]
-                   |
-                   v
-          [conform/render]
-          + [conform/audio]
-          + [conform/lut]
-          + Source video (original res)
-                   |
-                   v
-          Final Trailer (MP4)
+Stage 1: proxy_creation          [UNCHANGED]
+Stage 2: subtitle_parsing        [UNCHANGED]
+Stage 3: structural_analysis     [NEW] — text-only LLM via llama-server → anchors
+Stage 4: keyframe_extraction     [UNCHANGED — renumbered from Stage 3]
+Stage 5: llava_inference         [MODIFIED — now saves SceneDescription results]
+Stage 6: scene_zone_matching     [NEW] — assign clips to BEGIN/ESCALATION/CLIMAX zones
+Stage 7: narrative_generation    [MODIFIED — consumes zone assignments, non-linear ordering]
+Stage 8: assembly                [MODIFIED — BPM grid, music, SFX, VO integration]
+Stage 9: conform                 [MODIFIED — complex audio filtergraph]
 ```
 
-### Key Data Artifacts
+**Why this ordering:**
 
-| Artifact | Format | Stage | Persisted? | Size Estimate |
-|----------|--------|-------|------------|---------------|
-| MediaInfo | In-memory dataclass | probe | No | Tiny |
-| Proxy video | MP4 file (420p) | ingest | Yes, temp dir | ~200-500MB |
-| Scene list | In-memory list + JSON checkpoint | ingest | Checkpointed | Tiny |
-| Keyframe images | PNG files | ingest | Yes, temp dir | ~50-200KB each, 100-500 total |
-| Dialogue timeline | In-memory + JSON checkpoint | ingest | Checkpointed | Tiny |
-| Scene descriptions | JSON per frame + aggregated | inference | Checkpointed | ~1-5KB each |
-| Narrative arc | In-memory + JSON checkpoint | inference | Checkpointed | Tiny |
-| Vibe profile | Loaded from YAML | inference | Bundled with package | Tiny |
-| TRAILER_MANIFEST.json | JSON file | inference | Yes, output dir | ~5-20KB |
-| Final trailer | MP4 file | conform | Yes, output dir | ~50-200MB |
+- Stage 3 (structural analysis) runs before keyframe extraction because the anchor timestamps (BEGIN_T, ESCALATION_T, CLIMAX_T) can bias keyframe sampling toward structurally significant moments. Even if Stage 4 does not use them for extraction itself, they must exist before Stage 6.
+- Stage 5 (LLaVA inference) now persists SceneDescriptions so Stage 6 can read them on resume without re-running inference.
+- Stage 6 (scene-to-zone matching) depends on both LLaVA results and structural anchors — it must follow both Stage 3 and Stage 5.
+- Stage 8 (assembly) now requires a music track to be resolved before BPM detection runs. Music resolution happens inside Stage 8 as a sub-step before BPM detection.
+- Stage 9 (conform) receives beat timestamps and SFX timing from Stage 8 via manifest fields; the filtergraph is built there.
 
-## Patterns to Follow
-
-### Pattern 1: Stage-Based Pipeline with Checkpointing
-
-**What:** Each pipeline stage writes a checkpoint file upon completion. The orchestrator checks for existing checkpoints on startup and resumes from the last completed stage.
-
-**When:** Always. This is the core execution model.
-
-**Why:** A full pipeline run on a Quadro K6000 will take 15-60 minutes. LLaVA inference alone could be 10-30 minutes. Users should not have to restart from scratch on failure.
-
-**Example:**
+**Checkpoint names for new stages:**
 
 ```python
-# pipeline/state.py
-from dataclasses import dataclass, field
-from pathlib import Path
-from enum import Enum
-import json
-
-class PipelineStage(str, Enum):
-    INIT = "init"
-    PROXY_GENERATED = "proxy_generated"
-    SCENES_DETECTED = "scenes_detected"
-    KEYFRAMES_EXTRACTED = "keyframes_extracted"
-    SUBTITLES_PARSED = "subtitles_parsed"
-    INFERENCE_COMPLETE = "inference_complete"
-    NARRATIVE_EXTRACTED = "narrative_extracted"
-    MANIFEST_GENERATED = "manifest_generated"
-    REVIEW_APPROVED = "review_approved"  # only if --review
-    CONFORM_COMPLETE = "conform_complete"
-
-@dataclass
-class PipelineState:
-    stage: PipelineStage = PipelineStage.INIT
-    work_dir: Path | None = None
-    proxy_path: Path | None = None
-    keyframe_dir: Path | None = None
-    manifest_path: Path | None = None
-    output_path: Path | None = None
-    scene_count: int = 0
-    errors: list[str] = field(default_factory=list)
-
-    def save(self, path: Path) -> None:
-        path.write_text(json.dumps(self.__dict__, default=str, indent=2))
-
-    @classmethod
-    def load(cls, path: Path) -> "PipelineState":
-        data = json.loads(path.read_text())
-        data["stage"] = PipelineStage(data["stage"])
-        # ... restore Path objects ...
-        return cls(**data)
+"structural_analysis"   # new Stage 3 checkpoint key
+"inference"             # Stage 5 (was previously unguarded — now checkpointed)
+"zone_matching"         # new Stage 6 checkpoint key
 ```
 
-```python
-# pipeline/orchestrator.py
-class PipelineOrchestrator:
-    def __init__(self, config: PipelineConfig):
-        self.config = config
-        self.state = self._load_or_init_state()
+---
 
-    def run(self) -> Path:
-        """Execute pipeline from last checkpoint."""
-        if self.state.stage < PipelineStage.PROXY_GENERATED:
-            self._run_proxy_generation()
+### 2. Manifest Schema Changes
 
-        if self.state.stage < PipelineStage.KEYFRAMES_EXTRACTED:
-            self._run_keyframe_extraction()
+`TrailerManifest` and `ClipEntry` need new fields. `schema_version` must bump to `"2.0"`.
 
-        if self.state.stage < PipelineStage.SUBTITLES_PARSED:
-            self._run_subtitle_parsing()
-
-        if self.state.stage < PipelineStage.MANIFEST_GENERATED:
-            self._run_inference_pipeline()
-
-        if self.config.review and self.state.stage < PipelineStage.REVIEW_APPROVED:
-            self._pause_for_review()
-
-        if self.state.stage < PipelineStage.CONFORM_COMPLETE:
-            self._run_conform()
-
-        return self.state.output_path
-```
-
-### Pattern 2: Pydantic Models for All Serializable Data
-
-**What:** Use Pydantic v2 `BaseModel` for every data structure that crosses a boundary (file I/O, stage-to-stage communication, config loading). Use Python dataclasses only for purely internal, non-serialized state.
-
-**When:** Any data that gets written to JSON, read from YAML, or passed between pipeline stages.
-
-**Why:** Pydantic v2 gives you validation, serialization, JSON Schema generation (useful for manifest documentation), and type safety. The manifest schema is the critical contract between inference and conform -- it must be rigorously validated.
-
-**Example:**
+#### New top-level fields on `TrailerManifest`
 
 ```python
-# models/manifest.py
-from pydantic import BaseModel, Field, field_validator
-from enum import Enum
-
-class TransitionType(str, Enum):
-    CUT = "cut"
-    DISSOLVE = "dissolve"
-    FADE_BLACK = "fade_black"
-    WHIP = "whip"
-
-class ClipEntry(BaseModel):
-    clip_id: int = Field(ge=1)
-    source_in: float = Field(ge=0.0, description="Start timecode in seconds")
-    source_out: float = Field(gt=0.0, description="End timecode in seconds")
-    narrative_beat: str = Field(description="e.g., 'inciting_incident', 'climax', 'money_shot'")
-    scene_description: str = Field(description="LLaVA-generated description")
-    dialogue_line: str | None = Field(default=None, description="Subtitle text if dialogue-driven clip")
-    transition_in: TransitionType = TransitionType.CUT
-    transition_out: TransitionType = TransitionType.CUT
-    audio_level_db: float = Field(default=0.0, description="Relative audio adjustment")
-
-    @field_validator("source_out")
-    @classmethod
-    def out_after_in(cls, v, info):
-        if "source_in" in info.data and v <= info.data["source_in"]:
-            raise ValueError("source_out must be after source_in")
-        return v
-
-class AudioSettings(BaseModel):
-    target_lufs: float = Field(default=-14.0)
-    dialogue_boost_db: float = Field(default=0.0)
-    music_bed: str | None = Field(default=None, description="Path to music track if applicable")
-    fade_in_seconds: float = Field(default=0.5)
-    fade_out_seconds: float = Field(default=1.0)
-
 class TrailerManifest(BaseModel):
-    version: str = Field(default="1.0")
-    vibe: str
+    schema_version: str = "2.0"          # CHANGED from "1.0"
     source_file: str
-    source_duration_seconds: float
-    target_duration_seconds: float = Field(default=120.0)
-    lut_file: str | None = Field(default=None)
-    clips: list[ClipEntry]
-    audio: AudioSettings
-    generated_by: str = Field(default="cinecut")
-    generation_timestamp: str
+    vibe: str
+    clips: list[ClipEntry] = Field(min_length=1)
 
-    @field_validator("clips")
-    @classmethod
-    def clips_not_empty(cls, v):
-        if not v:
-            raise ValueError("Manifest must contain at least one clip")
-        return v
-
-    def total_duration(self) -> float:
-        return sum(c.source_out - c.source_in for c in self.clips)
+    # v2.0 additions
+    structural_anchors: Optional[StructuralAnchors] = None
+    music_bed: Optional[MusicBed] = None
+    bpm_grid: Optional[BpmGrid] = None
+    sfx_config: Optional[SfxConfig] = None
+    vo_clips: list[VoClip] = Field(default_factory=list)
 ```
 
-### Pattern 3: Fluent FFmpeg Builder
-
-**What:** A builder pattern that constructs FFmpeg commands as structured objects, not raw string concatenation. The builder validates arguments and produces a list[str] for subprocess.
-
-**When:** Every FFmpeg invocation. Never construct FFmpeg command strings directly.
-
-**Why:** FFmpeg commands are complex, order-sensitive, and error-prone. String concatenation leads to injection bugs, quoting issues, and unmaintainable code. A builder provides type safety and testability.
-
-**Note on ffmpeg-python:** The `ffmpeg-python` library (kkroening/ffmpeg-python) is an option but has been unmaintained since ~2023 and has known issues with complex filter graphs. For this project, a custom lightweight builder is better because: (a) we need precise control over `-ss` placement (before `-i` for fast seeking), (b) our FFmpeg usage patterns are well-defined, and (c) we avoid a dependency with uncertain maintenance.
-
-**Example:**
+#### New sub-models
 
 ```python
-# ffmpeg/builder.py
-from pathlib import Path
-from dataclasses import dataclass, field
+class StructuralAnchors(BaseModel):
+    """Timestamps marking narrative act boundaries, produced by Stage 3."""
+    begin_t: float      # seconds — start of film proper (after title cards)
+    escalation_t: float # seconds — first major escalation / second-act turn
+    climax_t: float     # seconds — climax peak
 
-@dataclass
-class FFmpegCommand:
-    """Structured FFmpeg command that can be converted to subprocess args."""
-    global_opts: list[str] = field(default_factory=list)
-    inputs: list[tuple[list[str], str]] = field(default_factory=list)  # (options, path)
-    filter_complex: str | None = None
-    output_opts: list[str] = field(default_factory=list)
-    output_path: str = ""
+class NarrativeZone(str, Enum):
+    BEGINNING  = "beginning"
+    ESCALATION = "escalation"
+    CLIMAX     = "climax"
 
-    def to_args(self) -> list[str]:
-        args = ["ffmpeg"] + self.global_opts
-        for opts, path in self.inputs:
-            args.extend(opts)
-            args.extend(["-i", path])
-        if self.filter_complex:
-            args.extend(["-filter_complex", self.filter_complex])
-        args.extend(self.output_opts)
-        if self.output_path:
-            args.append(self.output_path)
-        return args
+class MusicBed(BaseModel):
+    track_path: str          # absolute path to audio file (WAV/MP3/FLAC)
+    vibe: str                # vibe this track was selected for (audit trail)
+    duration_s: float        # total track duration
+    duck_threshold: float = -20.0   # dB level below which film audio triggers ducking
+    duck_ratio: float = 0.25        # music volume multiplier during ducking (0.25 = -12dB)
+    fade_in_s: float = 1.0
+    fade_out_s: float = 2.0
 
-class FFmpegBuilder:
-    def __init__(self):
-        self._cmd = FFmpegCommand()
-        self._cmd.global_opts = ["-y", "-hide_banner"]
+class BpmGrid(BaseModel):
+    bpm: float                      # detected tempo
+    beat_times: list[float]         # seconds of each beat in the final trailer timeline
+    downbeat_times: list[float]     # subset: first beat of each measure
 
-    def input(self, path: str | Path, *, seek: float | None = None,
-              duration: float | None = None) -> "FFmpegBuilder":
-        opts = []
-        if seek is not None:
-            opts.extend(["-ss", f"{seek:.3f}"])  # -ss BEFORE -i = fast seek
-        if duration is not None:
-            opts.extend(["-t", f"{duration:.3f}"])
-        self._cmd.inputs.append((opts, str(path)))
-        return self
+class SfxConfig(BaseModel):
+    swoosh_at_cuts: bool = True     # synthesize swoosh at every hard_cut boundary
+    cut_times_s: list[float] = Field(default_factory=list)  # populated in Stage 8
+    swoosh_duration_ms: int = 80    # length of synthesized swoosh
+    swoosh_freq_start: int = 800    # Hz, sweep start
+    swoosh_freq_end: int = 200      # Hz, sweep end
 
-    def video_codec(self, codec: str, **kwargs) -> "FFmpegBuilder":
-        self._cmd.output_opts.extend(["-c:v", codec])
-        for k, v in kwargs.items():
-            self._cmd.output_opts.extend([f"-{k}", str(v)])
-        return self
-
-    def audio_codec(self, codec: str, **kwargs) -> "FFmpegBuilder":
-        self._cmd.output_opts.extend(["-c:a", codec])
-        for k, v in kwargs.items():
-            self._cmd.output_opts.extend([f"-{k}", str(v)])
-        return self
-
-    def scale(self, width: int, height: int) -> "FFmpegBuilder":
-        self._cmd.output_opts.extend(["-vf", f"scale={width}:{height}"])
-        return self
-
-    def filter_complex(self, filtergraph: str) -> "FFmpegBuilder":
-        self._cmd.filter_complex = filtergraph
-        return self
-
-    def output(self, path: str | Path) -> "FFmpegBuilder":
-        self._cmd.output_path = str(path)
-        return self
-
-    def build(self) -> FFmpegCommand:
-        return self._cmd
+class VoClip(BaseModel):
+    """An extracted protagonist dialogue audio clip."""
+    source_start_s: float
+    source_end_s: float
+    dialogue_text: str
+    audio_path: str             # path to extracted WAV in work_dir/vo/
+    insert_at_clip_index: int   # which ClipEntry this VO plays over
 ```
 
-### Pattern 4: VRAM-Aware Sequential Inference
-
-**What:** Process keyframes one at a time through llama-cli, with explicit VRAM budget tracking. Never run concurrent llama-cli processes.
-
-**When:** All LLaVA inference operations.
-
-**Why:** The Quadro K6000 has exactly 12GB VRAM. LLaVA models (even quantized) consume 6-10GB VRAM. There is no room for concurrent inference. Sequential processing with a single llama-cli process per frame is the only safe approach.
-
-**Example:**
+#### Modified `ClipEntry` fields
 
 ```python
-# inference/llava.py
-import subprocess
-import json
-from pathlib import Path
-from dataclasses import dataclass
+class ClipEntry(BaseModel):
+    # ... all existing v1.0 fields unchanged ...
 
-@dataclass
-class LlavaConfig:
-    model_path: str
-    mmproj_path: str  # multimodal projector
-    n_gpu_layers: int = -1  # offload all to GPU
-    ctx_size: int = 2048
-    temperature: float = 0.1  # Low temp for consistent analysis
+    # v2.0 additions
+    narrative_zone: Optional[NarrativeZone] = None
+    # "beginning" | "escalation" | "climax" — set by Stage 6 (scene-to-zone matching)
+    # Used by Stage 7 ordering: sort by zone first, then by narrative signal within zone
 
-class LlavaRunner:
-    def __init__(self, config: LlavaConfig):
-        self.config = config
-
-    def analyze_frame(self, image_path: Path, prompt: str) -> str:
-        """Run llama-cli for a single keyframe. Blocks until complete."""
-        cmd = [
-            "llama-cli",
-            "-m", self.config.model_path,
-            "--mmproj", self.config.mmproj_path,
-            "-ngl", str(self.config.n_gpu_layers),
-            "-c", str(self.config.ctx_size),
-            "--temp", str(self.config.temperature),
-            "--image", str(image_path),
-            "-p", prompt,
-            "--no-display-prompt",
-        ]
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120,  # 2 min timeout per frame
-        )
-        if result.returncode != 0:
-            raise LlavaInferenceError(
-                f"llama-cli failed for {image_path}: {result.stderr}"
-            )
-        return result.stdout.strip()
-
-    def analyze_frames_sequential(
-        self, frames: list[Path], prompt_template: str,
-        progress_callback=None
-    ) -> list[dict]:
-        """Process all frames sequentially. One llama-cli call at a time."""
-        results = []
-        for i, frame in enumerate(frames):
-            prompt = prompt_template.format(frame_number=i + 1, total=len(frames))
-            raw = self.analyze_frame(frame, prompt)
-            # Parse structured output from LLaVA
-            results.append(self._parse_response(raw, frame))
-            if progress_callback:
-                progress_callback(i + 1, len(frames))
-        return results
+    beat_aligned_start: Optional[float] = None
+    # If non-None, conform stage should align clip start to this beat timestamp
+    # (snapping source_start_s to nearest beat in the trailer output timeline)
 ```
 
-### Pattern 5: Rich-Based CLI Progress
+#### Schema version gating
 
-**What:** Use the `rich` library for all terminal output: progress bars, status spinners, tables, and error formatting.
+`manifest/loader.py` must be updated to accept both `"1.0"` and `"2.0"` manifests. Manifests without `narrative_zone` on clips default to `None` (backward-compatible). The `--manifest` flag path must handle this gracefully.
 
-**When:** All user-facing output.
+---
 
-**Why:** Rich is the standard for Python CLI tools. It handles terminal width, color support detection, and provides structured output. For a pipeline that takes 15-60 minutes, clear progress reporting is critical for user trust.
+### 3. SceneDescription Persistence — Save/Load Interface
 
-**Example:**
+**Problem:** Stage 5 (LLaVA inference) runs 30-60 minutes and produces `list[tuple[KeyframeRecord, SceneDescription | None]]` that is currently discarded after Stage 5 completes. Resume after failure re-runs the entire inference stage.
+
+**Solution:** Persist results to `work_dir/inference_cache.json` atomically after all frames process, keyed by `frame_path`.
+
+#### Interface
 
 ```python
-# utils/progress.py
-from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
-from contextlib import contextmanager
+# inference/cache.py  (NEW MODULE)
 
-console = Console()
+def save_inference_cache(
+    results: list[tuple[KeyframeRecord, SceneDescription | None]],
+    work_dir: Path,
+) -> None:
+    """Atomically write inference results to work_dir/inference_cache.json.
 
-@contextmanager
-def pipeline_progress():
-    """Context manager for multi-stage pipeline progress."""
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold blue]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TimeElapsedColumn(),
-        console=console,
-    ) as progress:
-        yield progress
+    Format: dict[frame_path_str, SceneDescription_dict | null]
+    Uses same atomic tempfile + os.replace() pattern as checkpoint.py.
+    """
 
-# Usage in orchestrator:
-# with pipeline_progress() as progress:
-#     task = progress.add_task("Analyzing keyframes...", total=len(frames))
-#     for frame in frames:
-#         analyze(frame)
-#         progress.advance(task)
+def load_inference_cache(
+    work_dir: Path,
+) -> dict[str, SceneDescription | None] | None:
+    """Load cached inference results. Returns None if cache missing or corrupt.
+
+    Returns dict keyed by frame_path (absolute str) → SceneDescription or None.
+    """
+
+def build_results_from_cache(
+    records: list[KeyframeRecord],
+    cache: dict[str, SceneDescription | None],
+) -> list[tuple[KeyframeRecord, SceneDescription | None]]:
+    """Reconstruct inference result list from cache + current keyframe records.
+
+    Any record not in cache (e.g., new keyframes after partial run) gets None.
+    """
 ```
 
-## Anti-Patterns to Avoid
+#### Where in the pipeline
 
-### Anti-Pattern 1: Monolithic Pipeline Function
-
-**What:** A single function or script that runs the entire pipeline with no stage boundaries.
-
-**Why bad:** No resumability, no testability, no `--review` insertion point, impossible to debug. When LLaVA inference fails on frame 247 of 300, you lose all prior work.
-
-**Instead:** Stage-based orchestrator with checkpointing (Pattern 1).
-
-### Anti-Pattern 2: String-Based FFmpeg Commands
-
-**What:** Building FFmpeg commands via f-strings or string concatenation.
+In `cli.py`, Stage 5 logic becomes:
 
 ```python
-# BAD
-cmd = f"ffmpeg -ss {seek} -i {input_path} -vf scale={w}:{h} {output}"
-os.system(cmd)
+# Stage 5: LLaVA Inference
+cache = load_inference_cache(work_dir)
+if cache is not None and not ckpt.is_stage_complete("inference"):
+    # Partial run: cache exists but stage not marked complete
+    # Treat as complete to avoid re-running
+    inference_results = build_results_from_cache(keyframe_records, cache)
+    ckpt.inference_complete = True
+    ckpt.mark_stage_complete("inference")
+    save_checkpoint(ckpt, work_dir)
+elif not ckpt.is_stage_complete("inference"):
+    # Fresh run: no cache
+    inference_results = run_inference_stage(...)
+    save_inference_cache(inference_results, work_dir)   # atomic write
+    ckpt.mark_stage_complete("inference")
+    save_checkpoint(ckpt, work_dir)
+else:
+    # Already complete: load from cache for downstream stages
+    cache = load_inference_cache(work_dir)
+    inference_results = build_results_from_cache(keyframe_records, cache)
 ```
 
-**Why bad:** Shell injection risk, quoting bugs with paths containing spaces, no validation of argument order, impossible to test command construction separately from execution.
-
-**Instead:** Builder pattern (Pattern 3) + `subprocess.run()` with list args.
-
-### Anti-Pattern 3: Loading All Keyframes into Memory
-
-**What:** Reading all extracted keyframe images into Python memory before starting inference.
-
-**Why bad:** 300 keyframes at 420p ~= 300 * 300KB = 90MB in RAM. Not catastrophic, but pointless. llama-cli reads files from disk. Python never needs the pixel data.
-
-**Instead:** Pass file paths only. Let llama-cli handle its own image loading.
-
-### Anti-Pattern 4: Concurrent llama-cli Processes
-
-**What:** Launching multiple llama-cli processes in parallel for faster inference.
-
-**Why bad:** Each LLaVA model load consumes 6-10GB VRAM. Two concurrent processes will OOM on 12GB. Even if the first exits, VRAM may not be freed immediately.
-
-**Instead:** Strictly sequential, one process at a time (Pattern 4).
-
-### Anti-Pattern 5: Hardcoded Vibe Parameters
-
-**What:** Embedding vibe profile values (cut lengths, transition styles, LUFS targets) directly in Python code.
-
-**Why bad:** 18 vibes with multiple parameters each = unmaintainable code. Adding or tweaking a vibe requires code changes, not config changes.
-
-**Instead:** YAML config files per vibe, loaded at runtime (see Vibe Profile Design below).
-
-### Anti-Pattern 6: Using shell=True with subprocess
-
-**What:** `subprocess.run(cmd_string, shell=True)`.
-
-**Why bad:** Security risk (file paths in user input), platform-dependent behavior, harder to debug. FFmpeg commands are complex enough without adding shell interpretation issues.
-
-**Instead:** Always `subprocess.run(cmd_list, shell=False)`.
-
-## Vibe Profile Design
-
-Use YAML config files loaded into Pydantic models. Not raw dataclasses (no validation), not JSON (worse readability for config), not Python code (not editable by non-developers).
-
-```yaml
-# vibes/data/action.yaml
-name: action
-display_name: "Action"
-description: "Fast-paced, high-energy trailer with quick cuts and impact hits"
-
-edit_profile:
-  avg_cut_length_seconds: 1.5
-  min_cut_length_seconds: 0.5
-  max_cut_length_seconds: 4.0
-  preferred_transitions:
-    - cut          # weight: 0.7
-    - whip         # weight: 0.2
-    - fade_black   # weight: 0.1
-  pacing_curve: "accelerating"  # slow start, faster toward climax
-
-audio_profile:
-  target_lufs: -12.0
-  dialogue_boost_db: 3.0
-  bass_boost: true
-  impact_hits: true
-  fade_in_seconds: 0.3
-  fade_out_seconds: 0.8
-
-visual_profile:
-  lut_file: "action.cube"
-  contrast_boost: 1.1
-  saturation_boost: 1.05
-
-narrative_profile:
-  target_duration_seconds: 120
-  preferred_beats:
-    - money_shot        # weight: 0.3
-    - climax            # weight: 0.25
-    - action_sequence   # weight: 0.25
-    - inciting_incident # weight: 0.1
-    - dialogue          # weight: 0.1
-  max_dialogue_clips: 4
-  title_card_position: "after_first_beat"
-```
-
-```python
-# models/vibe.py
-from pydantic import BaseModel, Field
-
-class EditProfile(BaseModel):
-    avg_cut_length_seconds: float = Field(ge=0.3, le=10.0)
-    min_cut_length_seconds: float = Field(ge=0.2, le=5.0)
-    max_cut_length_seconds: float = Field(ge=1.0, le=30.0)
-    preferred_transitions: list[str]
-    pacing_curve: str = "linear"  # linear, accelerating, decelerating, wave
-
-class AudioProfile(BaseModel):
-    target_lufs: float = Field(ge=-24.0, le=-6.0)
-    dialogue_boost_db: float = Field(ge=-6.0, le=12.0)
-    bass_boost: bool = False
-    impact_hits: bool = False
-    fade_in_seconds: float = Field(ge=0.0, le=5.0)
-    fade_out_seconds: float = Field(ge=0.0, le=5.0)
-
-class VisualProfile(BaseModel):
-    lut_file: str | None = None
-    contrast_boost: float = Field(ge=0.5, le=2.0, default=1.0)
-    saturation_boost: float = Field(ge=0.5, le=2.0, default=1.0)
-
-class NarrativeProfile(BaseModel):
-    target_duration_seconds: float = Field(ge=30.0, le=300.0, default=120.0)
-    preferred_beats: list[str]
-    max_dialogue_clips: int = Field(ge=0, le=20, default=6)
-    title_card_position: str = "after_first_beat"
-
-class VibeProfile(BaseModel):
-    name: str
-    display_name: str
-    description: str
-    edit_profile: EditProfile
-    audio_profile: AudioProfile
-    visual_profile: VisualProfile
-    narrative_profile: NarrativeProfile
-```
-
-## Keyframe Extraction Strategy
-
-**Recommendation: Hybrid approach -- scene change detection as primary, with minimum interval fallback.**
-
-Use **PySceneDetect** (`scenedetect` package) for scene change detection. It is the most established Python library for this task, actively maintained, and works well with FFmpeg backends.
-
-**Confidence:** MEDIUM -- based on training data knowledge of PySceneDetect. Version and current maintenance status should be verified.
-
-### Strategy
-
-1. **Primary: Content-aware scene detection** via PySceneDetect's `ContentDetector`. This finds actual shot boundaries (cuts, dissolves) based on frame-to-frame difference.
-
-2. **Fallback: Minimum interval sampling.** If a scene runs longer than 30 seconds without a detected change (common in dialogue scenes), force-extract a keyframe at the midpoint. This ensures long scenes are still represented.
-
-3. **Cap: Maximum keyframe count.** For a 2-hour film, unconstrained detection could yield 500-2000 scenes. Cap at 300 keyframes for practical inference time (~300 * 5 seconds = 25 minutes of LLaVA inference).
-
-4. **Extraction: Middle frame of each scene.** Not the first frame (often black/transition). Not the last (same reason). The middle frame is most representative.
-
-```python
-# ingest/keyframes.py
-from scenedetect import open_video, SceneManager, ContentDetector
-from pathlib import Path
-
-class KeyframeExtractor:
-    def __init__(self, max_keyframes: int = 300, min_scene_seconds: float = 1.0,
-                 max_gap_seconds: float = 30.0):
-        self.max_keyframes = max_keyframes
-        self.min_scene_seconds = min_scene_seconds
-        self.max_gap_seconds = max_gap_seconds
-
-    def detect_scenes(self, proxy_path: Path) -> list[tuple[float, float]]:
-        """Detect scene boundaries. Returns list of (start_sec, end_sec)."""
-        video = open_video(str(proxy_path))
-        scene_manager = SceneManager()
-        scene_manager.add_detector(ContentDetector(threshold=27.0))
-        scene_manager.detect_scenes(video)
-        scenes = scene_manager.get_scene_list()
-
-        # Convert to seconds tuples
-        scene_times = [(s[0].get_seconds(), s[1].get_seconds()) for s in scenes]
-
-        # Filter out micro-scenes
-        scene_times = [(s, e) for s, e in scene_times if e - s >= self.min_scene_seconds]
-
-        # Insert forced keyframes for long gaps
-        scene_times = self._fill_gaps(scene_times)
-
-        # Cap total count
-        if len(scene_times) > self.max_keyframes:
-            scene_times = self._downsample(scene_times)
-
-        return scene_times
-
-    def extract_keyframes(self, proxy_path: Path, scenes: list[tuple[float, float]],
-                          output_dir: Path) -> list[Path]:
-        """Extract middle frame of each scene as PNG."""
-        output_dir.mkdir(parents=True, exist_ok=True)
-        keyframes = []
-        for i, (start, end) in enumerate(scenes):
-            midpoint = (start + end) / 2
-            output_path = output_dir / f"keyframe_{i:04d}.png"
-            # Use FFmpeg for extraction (single frame)
-            # ... ffmpeg builder call ...
-            keyframes.append(output_path)
-        return keyframes
-```
-
-## TRAILER_MANIFEST.json Schema
-
-The manifest is the central artifact -- the contract between AI inference and deterministic FFmpeg rendering. It must be complete enough that the conform stage needs no AI reasoning.
+#### JSON format for `inference_cache.json`
 
 ```json
 {
-  "version": "1.0",
-  "metadata": {
-    "generated_by": "cinecut",
-    "generation_timestamp": "2026-02-26T14:30:00Z",
-    "source_file": "/path/to/film.mkv",
-    "source_duration_seconds": 7200.0,
-    "source_resolution": "1920x1080",
-    "source_codec": "h264",
-    "subtitle_file": "/path/to/film.srt",
-    "vibe": "action",
-    "model": "llava-v1.6-mistral-7b-Q4_K_M"
-  },
-  "target": {
-    "duration_seconds": 120.0,
-    "resolution": "source",
-    "codec": "libx264",
-    "crf": 18,
-    "audio_codec": "aac",
-    "audio_bitrate": "192k"
-  },
-  "audio": {
-    "target_lufs": -12.0,
-    "dialogue_boost_db": 3.0,
-    "fade_in_seconds": 0.3,
-    "fade_out_seconds": 0.8
-  },
-  "visual": {
-    "lut_file": "vibes/luts/action.cube",
-    "contrast_boost": 1.1,
-    "saturation_boost": 1.05
-  },
-  "clips": [
-    {
-      "clip_id": 1,
-      "source_in": 145.200,
-      "source_out": 148.500,
-      "duration": 3.3,
-      "narrative_beat": "inciting_incident",
-      "scene_description": "Dark alley, protagonist discovers the body, rain falling",
-      "dialogue": "What happened here?",
-      "transition_in": "fade_black",
-      "transition_out": "cut",
-      "audio_level_db": 0.0
+  "schema_version": "1.0",
+  "frame_count": 247,
+  "results": {
+    "/path/to/work/keyframes/frame_0001.jpg": {
+      "visual_content": "...",
+      "mood": "...",
+      "action": "...",
+      "setting": "..."
     },
-    {
-      "clip_id": 2,
-      "source_in": 890.100,
-      "source_out": 892.600,
-      "duration": 2.5,
-      "narrative_beat": "money_shot",
-      "scene_description": "Car explosion, wide shot, debris flying",
-      "dialogue": null,
-      "transition_in": "cut",
-      "transition_out": "whip",
-      "audio_level_db": -3.0
-    }
-  ],
-  "clip_order_rationale": "Opening with inciting incident establishes stakes, escalating through action sequences to climax, ending on emotional resolution"
+    "/path/to/work/keyframes/frame_0002.jpg": null
+  }
 }
 ```
 
-## Temp File Lifecycle
+`SceneDescription` is a stdlib dataclass — serialize via `dataclasses.asdict()`, deserialize via `validate_scene_description()`. No new Pydantic model needed.
 
-### Directory Structure
+---
+
+### 4. Music Mixing in FFmpeg — Conform Stage Filtergraph
+
+The conform stage must change from per-clip extraction + concat demuxer to a **single-pass complex filtergraph** that mixes four audio layers:
+
+1. **Film audio** — extracted from source at clip timestamps (as today)
+2. **Music bed** — royalty-free track, ducked under film audio
+3. **SFX layer** — synthesized swoosh tones, placed at each hard cut
+4. **VO clips** — protagonist dialogue audio at subtitle timestamps
+
+#### Architecture decision: two-pass vs single-pass
+
+**Recommended: two-pass approach** — extract individual clips first (existing behavior), then compose audio mix as a separate FFmpeg call against the pre-extracted clips.
+
+Reason: Building a single mega-filtergraph that seeks into a 2-hour source file at 25 different timestamps simultaneously is fragile and hard to debug. The existing extract-then-concat approach is proven. The audio layering is a post-process step on the already-assembled video.
+
+#### New conform sequence
 
 ```
-~/.cinecut/                     # App-level config (optional)
-    config.yaml                 # Global defaults
-
-<working_dir>/                  # Where user runs cinecut
-    cinecut_work/               # Created per run, named deterministically
-        <hash>/                 # Hash of source file path + mtime for dedup
-            proxy/
-                proxy_420p.mp4
-            keyframes/
-                keyframe_0001.png
-                keyframe_0002.png
-                ...
-            inference/
-                scene_0001.json
-                scene_0002.json
-                ...
-                narrative_arc.json
-            state.json          # Pipeline checkpoint
-            TRAILER_MANIFEST.json
-    output/
-        <source_name>_<vibe>_trailer.mp4
+Pass 1 (unchanged): extract_and_grade_clip() for each ClipEntry → work_dir/conform_clips/clip_NNNx.mp4
+Pass 2 (unchanged): concatenate_clips() → work_dir/trailer_raw.mp4 (video + film audio)
+Pass 3 (NEW):       audio_mix_pass() → final_trailer.mp4 (adds music + SFX + VO over raw trailer)
 ```
 
-### Lifecycle Rules
+#### Pass 3 filtergraph architecture
 
-1. **Work directory** is created at pipeline start in the current working directory (not /tmp). Reason: /tmp may have limited space; users expect to find intermediates near their source file.
+```python
+# conform/audio_mix.py  (NEW MODULE)
 
-2. **Deterministic naming** via hash of source path + mtime. Running the same file again reuses the work directory (enabling resumability).
+def build_audio_mix_filtergraph(
+    trailer_duration_s: float,
+    music_bed: MusicBed,
+    sfx_config: SfxConfig,
+    vo_clips: list[VoClip],
+    lufs_target: float,
+) -> str:
+    """Build the -filter_complex string for the audio mixing pass.
 
-3. **Proxy video** is kept until the pipeline completes successfully. It is the largest temp file (~200-500MB) but is needed for re-extraction if inference fails.
+    Inputs to the FFmpeg call:
+      [0] trailer_raw.mp4         — video + film audio
+      [1] music_bed.track_path    — music track (pre-trimmed to trailer duration)
+      [2..N] vo_clip audio files  — one per VoClip in vo_clips
 
-4. **Keyframes** are kept until inference completes. After all LLaVA analysis is done, they can be deleted (but are small, so keeping them is fine for debugging).
+    Output: mixed stereo audio + original video stream.
+    """
+```
 
-5. **Inference JSON files** are always kept -- they are the pipeline's audit trail and enable re-running manifest generation with different vibe profiles without re-running LLaVA.
+Filtergraph structure (pseudocode for string construction):
 
-6. **Cleanup** is explicit via a `cinecut clean` subcommand, not automatic. Users may want to inspect intermediates. Default behavior: keep everything. Clean removes the `cinecut_work/` directory.
+```
+# Film audio with loudnorm already applied (Pass 1/2 handled it)
+[0:a]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[film_audio];
 
-7. **The manifest** is always preserved in the output directory alongside the final trailer. It is the definitive record of what the AI decided.
+# Music bed: trim to trailer length, fade in/out
+[1:a]atrim=0:{trailer_duration_s},
+     afade=t=in:st=0:d={fade_in_s},
+     afade=t=out:st={fade_out_start}:d={fade_out_s},
+     aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[music_raw];
+
+# Ducking: sidechain compress music when film audio is loud
+[film_audio]asplit=2[film_sc][film_mix];
+[music_raw][film_sc]sidechaincompress=
+    threshold=0.02:ratio=4:attack=200:release=1000[music_ducked];
+
+# Synthesized SFX: one aevalsrc per cut point, mixed together
+[sfx_stream]: generated separately via subprocess, pre-rendered to WAV
+    (see SFX synthesis section below)
+
+# VO clips: each VO is an additional input, delayed to correct position
+[2:a]adelay={vo_0_delay_ms}|{vo_0_delay_ms}[vo_0];
+[3:a]adelay={vo_1_delay_ms}|{vo_1_delay_ms}[vo_1];
+...
+
+# Final mix: film audio + ducked music + SFX + VO
+[film_mix][music_ducked][sfx_pre_rendered][vo_0][vo_1]...
+amix=inputs={N}:duration=first:normalize=0[audio_out]
+```
+
+**SFX synthesis approach:** Do not attempt to synthesize swooshes inside the filtergraph using `aevalsrc` expressions with per-beat timing — this produces filtergraphs of unbounded complexity (one node per beat). Instead:
+
+Pre-render a single SFX audio file before the conform pass:
+
+```python
+# conform/sfx.py  (NEW MODULE)
+
+def render_sfx_track(
+    sfx_config: SfxConfig,
+    trailer_duration_s: float,
+    output_path: Path,
+) -> Path:
+    """Render a single SFX audio track (silence + swooshes at cut positions).
+
+    Algorithm:
+    1. For each cut_time in sfx_config.cut_times_s:
+       - Synthesize a {swoosh_duration_ms}ms frequency sweep
+         from {swoosh_freq_start}Hz to {swoosh_freq_end}Hz using:
+         ffmpeg -f lavfi -i "aevalsrc=sin(2*PI*t*(800-600*t/{dur_s})):s=48000:d={dur_s}" \
+                -af "volume=0.4" swoosh_{i}.wav
+    2. Combine all swooshes into one SFX track at the correct offsets:
+       ffmpeg -f lavfi -i "anullsrc=r=48000:cl=stereo:d={trailer_duration_s}" \
+              [+ each swoosh with adelay] \
+              -filter_complex "amix=inputs=N:normalize=0" sfx_track.wav
+    Returns path to sfx_track.wav in work_dir/sfx/.
+    """
+```
+
+This produces a single clean WAV that the audio mix pass treats as a regular input.
+
+#### VO extraction
+
+```python
+# conform/vo_extract.py  (NEW MODULE)
+
+def extract_vo_clip(
+    source: Path,
+    start_s: float,
+    end_s: float,
+    output_path: Path,
+) -> Path:
+    """Extract protagonist dialogue audio from film source.
+
+    ffmpeg -ss {start_s} -i {source} -t {duration} -vn -c:a pcm_s16le -ar 48000 {output_path}
+
+    Audio only (no video), 16-bit PCM WAV for clean mixing.
+    Runs WITHOUT GPU_LOCK (audio extraction does not use GPU).
+    """
+```
+
+VO extraction runs during Stage 8 (assembly), before the manifest is finalized. The extracted WAV paths are written into `VoClip.audio_path` fields in the manifest.
+
+---
+
+### 5. Model Loading Sequencing — Structural Analysis + LLaVA
+
+The project constraint is that llama-server is the only inference backend and CUDA 11.4 stability must not be compromised. The v2.0 structural analysis (Stage 3) uses a text-only LLaMA model (not LLaVA). This requires loading a different GGUF.
+
+#### Option A: Sequential server restarts (RECOMMENDED)
+
+Start llama-server with the text model for Stage 3, stop it, then start it with the LLaVA model for Stage 5. The `LlavaEngine` context manager pattern already handles start/stop. A parallel `TextEngine` context manager follows the same pattern.
+
+```python
+# inference/text_engine.py  (NEW MODULE)
+
+class TextEngine:
+    """Context manager for text-only llama-server inference.
+
+    Same pattern as LlavaEngine but without --mmproj.
+    Holds GPU_LOCK for its entire lifetime.
+    """
+    def __init__(self, model_path: Path, port: int = 8090, ...):
+        ...
+
+    def analyze_structure(
+        self,
+        subtitle_text: str,
+        film_duration_s: float,
+    ) -> StructuralAnchors:
+        """Submit full subtitle corpus to text model, return anchor timestamps.
+
+        Prompt: "Given these subtitles from a film, identify the timestamp in seconds
+        of three narrative moments: BEGIN_T (start of main story after opening),
+        ESCALATION_T (first major escalation), CLIMAX_T (peak climax). Respond with JSON."
+
+        Uses json_schema constrained generation, same as LlavaEngine.describe_frame().
+        Returns StructuralAnchors Pydantic model.
+        """
+```
+
+The structural analysis prompt submits the full subtitle text (condensed — timestamps + dialogue only, no ASS formatting tags). The model returns `{"begin_t": ..., "escalation_t": ..., "climax_t": ...}` as a JSON object validated via Pydantic.
+
+**Sequencing in cli.py:**
+
+```python
+# Stage 3: Structural analysis (text LLM)
+with TextEngine(text_model_path) as engine:       # acquires GPU_LOCK
+    anchors = engine.analyze_structure(...)        # runs inference
+# GPU_LOCK released here
+
+# ... Stage 4: keyframe extraction (no GPU needed) ...
+
+# Stage 5: LLaVA inference
+with LlavaEngine(model_path, mmproj_path) as engine:  # acquires GPU_LOCK
+    inference_results = run_inference_stage(...)
+# GPU_LOCK released here
+```
+
+**No model swap API needed.** The stop/start approach adds approximately 10-15 seconds (server restart latency), which is negligible compared to the total pipeline runtime. Router mode in llama.cpp is a newer feature (post-build-8156) and its compatibility with CUDA 11.4 and the mmproj binary patch is unverified. Avoid it.
+
+#### Option B: Router mode (NOT recommended for this project)
+
+llama.cpp's router mode (introduced ~late 2025, PR #18228) allows multiple models in one server. However:
+- Build 8156 predates this feature
+- Router mode's CUDA 11.4 compatibility is unverified
+- The 42-byte mmproj binary patch needed for llava-v1.5-7b compatibility may behave differently in multi-model mode
+- Upgrading llama.cpp risks re-introducing the mmproj compatibility issue that required the binary patch
+
+**Confidence:** HIGH — sequential server restarts are safe, proven, and within the existing LlavaEngine pattern.
+
+#### New CLI flags needed
+
+```
+--text-model PATH    Path to text-only LLaMA GGUF (for structural analysis)
+                     Default: None (Stage 3 skipped if not provided)
+```
+
+If `--text-model` is not provided, Stage 3 is skipped and `StructuralAnchors` are estimated heuristically (e.g., BEGIN_T = 5% into film, ESCALATION_T = 45%, CLIMAX_T = 80%).
+
+---
+
+### 6. BPM Detection Integration — Dependency Order
+
+BPM detection requires a music track. The dependency chain is:
+
+```
+1. Vibe is known at CLI invocation → determines which music track to use
+2. Music track is resolved at Stage 8 start (download if not cached)
+3. BPM detection runs on the music track (via librosa) → produces BpmGrid
+4. Beat timestamps are written into the manifest
+5. Stage 9 (conform) aligns clip boundaries and places SFX using beat timestamps
+```
+
+**BPM detection does not require GPU.** It runs on CPU with the music file. It can run before or after LLaVA inference — it only needs the music file. The natural place is Stage 8 (assembly).
+
+**Recommended library: librosa**
+
+```python
+import librosa
+
+y, sr = librosa.load(music_path, sr=None, mono=True)
+tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr, units='time')
+# beat_frames is already in seconds when units='time'
+beat_times: list[float] = beat_frames.tolist()
+bpm: float = float(tempo[0]) if hasattr(tempo, '__len__') else float(tempo)
+```
+
+**librosa** is preferred over aubio for this use case: batch processing (not real-time), stable API, well-documented, pure Python + numpy. librosa 0.11.0 is the current version (HIGH confidence).
+
+**Dependency note:** librosa requires soundfile (for audio loading) and numba (optional, for JIT speedup). librosa can load MP3/WAV/FLAC via soundfile + audioread. This is a new dependency for the project.
+
+**BPM-driven clip alignment:** After generating the BpmGrid, the assembly stage snaps each clip's intended trailer start time to the nearest beat. This is a soft snap — if no beat is within 0.3s, use the original timing. The `beat_aligned_start` field on ClipEntry stores the result.
+
+---
+
+### 7. New vs Modified Components
+
+#### New modules to create
+
+| Module | Purpose | Stage |
+|--------|---------|-------|
+| `inference/text_engine.py` | TextEngine context manager for structural analysis LLM | Stage 3 |
+| `inference/structural.py` | analyze_structure() prompt + response parsing, StructuralAnchors model | Stage 3 |
+| `inference/cache.py` | save/load inference_cache.json, build_results_from_cache() | Stage 5 |
+| `narrative/zone_matching.py` | assign_zone_to_clips() — maps each clip to BEGIN/ESCALATION/CLIMAX | Stage 6 |
+| `assembly/bpm.py` | detect_bpm(), build_bpm_grid(), snap_clips_to_beats() | Stage 8 |
+| `assembly/music.py` | resolve_music_track() — per-vibe archive lookup + download | Stage 8 |
+| `conform/audio_mix.py` | build_audio_mix_filtergraph(), audio_mix_pass() | Stage 9 |
+| `conform/sfx.py` | render_sfx_track() — pre-render swoosh WAV at cut positions | Stage 9 |
+| `conform/vo_extract.py` | extract_vo_clip() — pull dialogue audio from source at timestamps | Stage 8 |
+
+#### Modified existing modules
+
+| Module | What Changes |
+|--------|-------------|
+| `manifest/schema.py` | Add StructuralAnchors, MusicBed, BpmGrid, SfxConfig, VoClip models; add fields to TrailerManifest and ClipEntry; bump schema_version to "2.0" |
+| `manifest/vibes.py` | Add `music_track_filename: str` field to VibeProfile for per-vibe music archive lookup |
+| `manifest/loader.py` | Accept both schema_version "1.0" and "2.0"; handle missing v2.0 fields gracefully |
+| `checkpoint.py` | Add new stage name fields: `structural_analysis_path`, `zone_matching_complete`, `inference_cache_path` |
+| `cli.py` | Add `--text-model` flag; insert Stage 3 (structural) and Stage 6 (zone matching) into pipeline; update TOTAL_STAGES from 7 to 9; add Stage 5 checkpoint guard using inference cache |
+| `narrative/generator.py` | Accept zone assignments from Stage 6; change clip ordering from chronological to zone-first + narrative-signal-within-zone |
+| `assembly/__init__.py` | Add BPM detection sub-step; resolve music track; generate SFX config; trigger VO extraction; write all into manifest |
+| `conform/pipeline.py` | Add Pass 3 audio mixing after concat; keep Passes 1 and 2 unchanged |
+| `inference/engine.py` | No structural changes; run_inference_stage() now calls save_inference_cache() before returning |
+
+#### Unchanged modules
+
+- `ingestion/proxy.py` — unchanged
+- `ingestion/subtitles.py` — unchanged
+- `ingestion/keyframes.py` — unchanged
+- `inference/models.py` — SceneDescription unchanged
+- `inference/vram.py` — unchanged
+- `narrative/scorer.py` — unchanged (zone_matching is a new stage, not a scorer change)
+- `narrative/signals.py` — unchanged
+- `assembly/ordering.py` — sort_clips_by_act() is supplemented, not replaced, by zone sorting
+- `assembly/title_card.py` — unchanged
+- `conform/luts.py` — unchanged
+- `errors.py` — may add new error types (InferenceModelNotFoundError, MusicTrackError)
+- `models.py` — DialogueEvent and KeyframeRecord unchanged
+
+---
+
+### 8. Component Boundaries (v2.0 Complete)
+
+| Component | Responsibility | Inputs | Outputs | Communicates With |
+|-----------|---------------|--------|---------|-------------------|
+| `inference/text_engine.py` | Text LLM server lifecycle + GPU_LOCK | text model GGUF path | StructuralAnchors JSON | llama-server HTTP |
+| `inference/structural.py` | Structural analysis prompt + parse | subtitle text, film duration | StructuralAnchors | text_engine |
+| `inference/cache.py` | Persist + restore LLaVA results | inference result list, work_dir | inference_cache.json | inference/engine, manifest |
+| `narrative/zone_matching.py` | Map clips to narrative zones | ClipEntry list, StructuralAnchors | ClipEntry list with zones | narrative/generator |
+| `assembly/music.py` | Resolve vibe-specific music track | vibe name, archive dir | WAV/MP3 path | filesystem, optional HTTP |
+| `assembly/bpm.py` | BPM detection + beat grid | music track path | BpmGrid | librosa |
+| `conform/sfx.py` | Synthesize swoosh SFX track | SfxConfig, trailer duration | sfx_track.wav | FFmpeg subprocess |
+| `conform/vo_extract.py` | Extract dialogue audio clips | source path, VoClip list | WAV files in work_dir/vo/ | FFmpeg subprocess |
+| `conform/audio_mix.py` | Multi-layer audio mixing | trailer_raw.mp4, music, sfx, VO | final_trailer.mp4 | FFmpeg subprocess |
+
+---
+
+### 9. Data Flow — v2.0 Complete Pipeline
+
+```
+Source Video + Subtitle File + Vibe
+        |
+        v
+Stage 1: proxy_creation
+        → work_dir/proxy.mp4
+        |
+        v
+Stage 2: subtitle_parsing
+        → list[DialogueEvent]
+        |
+        v
+Stage 3: structural_analysis (OPTIONAL — requires --text-model)
+        → StructuralAnchors {begin_t, escalation_t, climax_t}
+        → work_dir/structural_anchors.json
+        |
+        v
+Stage 4: keyframe_extraction
+        → list[KeyframeRecord], JPEG files in work_dir/keyframes/
+        |
+        v
+Stage 5: llava_inference
+        → list[tuple[KeyframeRecord, SceneDescription|None]]
+        → work_dir/inference_cache.json  [NEW — enables resume]
+        |
+        v
+Stage 6: scene_zone_matching
+        → each KeyframeRecord annotated with NarrativeZone
+        |
+        v
+Stage 7: narrative_generation
+        → TRAILER_MANIFEST.json (schema_version "2.0")
+          includes: clips with narrative_zone, StructuralAnchors
+        |
+Stage 8: assembly
+    ├── resolve_music_track() → work_dir/music/<vibe>_track.mp3
+    ├── detect_bpm() → BpmGrid, snap_clips_to_beats() → beat_aligned_start per clip
+    ├── extract_vo_clips() → work_dir/vo/vo_NNN.wav
+    ├── generate_title_card.mp4, button.mp4
+    └── write ASSEMBLY_MANIFEST.json (includes MusicBed, BpmGrid, SfxConfig, VoClips)
+        |
+        v
+Stage 9: conform
+    ├── Pass 1: extract_and_grade_clip() × N clips → work_dir/conform_clips/clip_NNNN.mp4
+    ├── Pass 2: concatenate_clips() → work_dir/trailer_raw.mp4
+    ├── Pass 3: render_sfx_track() → work_dir/sfx/sfx_track.wav
+    └── Pass 4: audio_mix_pass() → {source_stem}_trailer_{vibe}.mp4
+```
+
+---
+
+### 10. Suggested Build Order for Phases
+
+Build order follows data dependencies strictly. Each phase produces a testable deliverable.
+
+#### Phase 1: Inference Persistence (SceneDescription cache)
+
+**Why first:** This is a pure improvement to existing Stage 5 with no external dependencies. It fixes the most painful resume gap from v1.0. Other v2.0 features depend on inference results being available, so this foundation should be solid first.
+
+**Delivers:**
+- `inference/cache.py` (save/load/build_results_from_cache)
+- `checkpoint.py` updated with `inference_cache_path`
+- Stage 5 in `cli.py` wrapped with cache guard
+- Tests: cache round-trip, resume simulation (delete checkpoint, keep cache)
+
+#### Phase 2: Structural Analysis (text LLM, Stage 3)
+
+**Why second:** Introduces TextEngine pattern, new CLI flag, new manifest fields. Does not depend on BPM/music/SFX. Stage 3 output feeds Stage 6, so it must exist before zone matching.
+
+**Delivers:**
+- `inference/text_engine.py` (TextEngine context manager)
+- `inference/structural.py` (analyze_structure, StructuralAnchors)
+- `manifest/schema.py` updates (StructuralAnchors, schema_version bump)
+- `cli.py` Stage 3 insertion, `--text-model` flag
+- Tests: TextEngine lifecycle, structural analysis prompt round-trip, fallback heuristic
+
+#### Phase 3: Zone Matching + Non-Linear Ordering (Stage 6)
+
+**Why third:** Depends on StructuralAnchors from Phase 2 (or heuristic fallback). Changes clip ordering semantics in Stage 7.
+
+**Delivers:**
+- `narrative/zone_matching.py` (assign_zone_to_clips)
+- `manifest/schema.py` NarrativeZone enum, `narrative_zone` on ClipEntry
+- `narrative/generator.py` updated to use zone-first ordering
+- `cli.py` Stage 6 insertion, "zone_matching" checkpoint
+- Tests: zone assignment with anchors, zone assignment with fallback heuristics, ordering output
+
+#### Phase 4: BPM Grid + Music Bed (Stage 8 sub-features)
+
+**Why fourth:** Pure addition to Stage 8 assembly. No changes to inference or narrative stages. Requires librosa as new dependency.
+
+**Delivers:**
+- `assembly/music.py` (resolve_music_track, per-vibe archive)
+- `assembly/bpm.py` (detect_bpm, build_bpm_grid, snap_clips_to_beats)
+- `manifest/schema.py` MusicBed and BpmGrid models
+- `manifest/vibes.py` `music_track_filename` on VibeProfile (all 18 vibes)
+- `assembly/__init__.py` updated assemble_manifest()
+- Tests: BPM detection on known-tempo file, beat snap logic, music resolution fallback
+
+#### Phase 5: SFX + VO + Audio Mix (Stage 9 conform changes)
+
+**Why last:** Depends on BpmGrid (cut times from Phase 4), VoClip definitions (from manifest), and music track path. This is the most complex phase — the FFmpeg filtergraph must be validated end-to-end.
+
+**Delivers:**
+- `conform/sfx.py` (render_sfx_track, FFmpeg aevalsrc synthesis)
+- `conform/vo_extract.py` (extract_vo_clip)
+- `conform/audio_mix.py` (build_audio_mix_filtergraph, audio_mix_pass)
+- `manifest/schema.py` SfxConfig and VoClip models
+- `conform/pipeline.py` updated conform_manifest() with Pass 3 + Pass 4
+- `cli.py` Stage 8 VO extraction sub-step
+- Tests: SFX track generation (verify WAV has sound at cut positions), VO extraction, filtergraph smoke test on short fixture
+
+---
+
+## Anti-Patterns to Avoid
+
+### Anti-Pattern 1: Single-Pass Mega-Filtergraph
+
+**What goes wrong:** Building one FFmpeg command that seeks into the 2-hour source at 25 clip positions AND mixes music AND adds SFX simultaneously.
+
+**Why bad:** Filtergraph complexity makes debugging impossible. Seeking into a 2-hour source 25 times in one command stresses FFmpeg's demuxer. Error messages point to the filtergraph, not the clip that failed.
+
+**Instead:** Extract clips first (existing proven behavior), then apply audio mix as a separate pass on the assembled trailer.
+
+### Anti-Pattern 2: Router Mode for Model Swapping
+
+**What goes wrong:** Upgrading llama.cpp to use router mode to avoid server restarts between Stage 3 and Stage 5.
+
+**Why bad:** Build 8156 is the tested stable version for CUDA 11.4 + mmproj binary patch. Router mode was introduced post-8156. Upgrading risks CUDA 11.4 instability and re-introducing the mmproj compatibility failure mode.
+
+**Instead:** Sequential TextEngine → LlavaEngine server restarts. 10-15s overhead is negligible.
+
+### Anti-Pattern 3: Synthesizing SFX Inline in Filtergraph
+
+**What goes wrong:** Building one aevalsrc node per cut point inside the audio mix filtergraph (potentially 25-35 nodes for an action trailer).
+
+**Why bad:** FFmpeg filtergraph complexity grows with each node. Filtergraph strings become 2000+ characters, hard to debug, potentially hitting FFmpeg's filter graph limit.
+
+**Instead:** Pre-render a single SFX track WAV (silence + swoosh tones at the right offsets). This is one additional input to the mix filtergraph.
+
+### Anti-Pattern 4: Storing Beat Timestamps Only in Memory
+
+**What goes wrong:** Detecting BPM and producing beat_times list but only keeping it in memory (not persisting to manifest).
+
+**Why bad:** If the conform stage fails and the pipeline resumes, BPM detection must re-run (and may produce slightly different results from librosa's non-deterministic tracker). The assembled clips may have been snapped to different beat positions.
+
+**Instead:** Write BpmGrid to manifest immediately after BPM detection. The manifest is the source of truth for the conform stage.
+
+### Anti-Pattern 5: Zone Matching Based Only on Timestamps
+
+**What goes wrong:** Assigning zone purely by timestamp (e.g., first 33% = BEGINNING regardless of content).
+
+**Why bad:** The whole point of structural analysis is to find where the story actually escalates, not where 33% of runtime falls. A film with a slow burn and late climax will have very different structural boundaries.
+
+**Instead:** Zone assignment is a joint decision: StructuralAnchors provide the primary boundary, but individual clip's `beat_type` and `money_shot_score` can override — high-scoring climax_peak beats get CLIMAX zone regardless of timestamp.
+
+---
 
 ## Scalability Considerations
 
-| Concern | Current (K6000) | Future Considerations |
-|---------|-----------------|----------------------|
-| VRAM | 12GB, sequential inference, ~5s/frame | With more VRAM: larger context windows, batch inference possible |
-| Inference time | ~25 min for 300 frames | Faster GPUs: proportionally faster. Smaller models: faster but less accurate |
-| Proxy generation | ~2-5 min for 2hr film at 420p | SSD vs HDD matters more than CPU. Could skip proxy if GPU has enough VRAM for full-res decode |
-| Conform/render | ~5-10 min for 2-min trailer at source res | Hardware encoding (NVENC) could cut this to <1 min. K6000 supports NVENC. |
-| Keyframe count | Capped at 300 | More frames = better narrative coverage but longer inference. Diminishing returns past ~500 |
-| Film length | Tested design: up to 3 hours | Longer inputs scale linearly in all stages. No algorithmic bottlenecks. |
+| Concern | v1.0 Approach | v2.0 Change | Notes |
+|---------|--------------|-------------|-------|
+| GPU sequencing | GPU_LOCK prevents concurrent use | Now two GPU stages (Stage 3 + Stage 5) with different models | Sequential server restarts, ~10-15s overhead per swap |
+| Audio processing | loudnorm only, per-clip | Multi-layer mix pass | librosa runs on CPU; FFmpeg audio mix pass adds ~20-30s |
+| Music archive | Not present | Per-vibe, auto-downloaded | First run downloads ~10MB per vibe; cached thereafter |
+| Manifest size | ~5-20KB | +BpmGrid, +VoClips, +SFX config | Negligible — still under 100KB |
+| Stage count | 7 stages | 9 stages | Resume logic now has more granular recovery points |
 
-## Suggested Build Order
-
-The build order follows data dependencies. You cannot test a downstream component without its upstream producing real artifacts.
-
-```
-Phase 1: Foundation
-    models/ (Pydantic schemas)
-    ffmpeg/builder.py + ffmpeg/runner.py + ffmpeg/probe.py
-    vibes/profiles.py + vibes/registry.py + vibes/data/ (YAML files)
-    utils/progress.py + utils/tempfiles.py
-    cli.py (skeleton with --help)
-
-Phase 2: Tier 1 -- Ingestion
-    ingest/proxy.py (FFmpeg proxy generation)
-    ingest/subtitles.py (SRT/ASS parsing)
-    ingest/keyframes.py (PySceneDetect + extraction)
-    pipeline/state.py (checkpoint basics)
-    [Testable: cinecut <video> produces proxy + keyframes + parsed subtitles]
-
-Phase 3: Tier 2 -- Inference
-    inference/llava.py (llama-cli subprocess wrapper)
-    inference/batching.py (sequential frame processing)
-    inference/narrative.py (beat extraction logic)
-    inference/manifest.py (manifest assembly)
-    pipeline/orchestrator.py (full pipeline wiring)
-    [Testable: cinecut <video> --vibe action produces TRAILER_MANIFEST.json]
-
-Phase 4: Tier 3 -- Conform
-    conform/render.py (FFmpeg assembly from manifest)
-    conform/audio.py (LUFS normalization)
-    conform/lut.py (LUT application)
-    [Testable: full pipeline produces final trailer MP4]
-
-Phase 5: Polish
-    --review flag implementation
-    Error recovery and partial failure handling
-    cinecut clean subcommand
-    All 18 vibe profiles tuned
-    LUT sourcing/creation
-```
-
-**Phase ordering rationale:**
-- Models and FFmpeg utilities are the foundation everything else calls. Build and test them first.
-- Tier 1 (Ingestion) produces the artifacts that Tier 2 needs. You can validate proxy quality and keyframe extraction independently.
-- Tier 2 (Inference) is the riskiest phase -- LLaVA integration, prompt engineering, narrative extraction are all uncertain. Build it third so you have real proxy/keyframe data to test against.
-- Tier 3 (Conform) is deterministic FFmpeg work. Once you have a valid manifest (even hand-written), this stage is straightforward to build and test.
-- Polish comes last because the core loop must work before edge cases matter.
+---
 
 ## Sources
 
-- Project context: `/home/adamh/ai-video-trailer/.planning/PROJECT.md`
-- PySceneDetect: training data knowledge (MEDIUM confidence -- library is well-established but version/API should be verified against current docs)
-- Pydantic v2: training data knowledge (HIGH confidence -- well-established, widely documented)
-- Rich library: training data knowledge (HIGH confidence -- standard Python CLI library)
-- FFmpeg seeking behavior (`-ss` before `-i`): training data knowledge (HIGH confidence -- fundamental FFmpeg behavior, well-documented)
-- llama-cli multimodal flags: training data knowledge (MEDIUM confidence -- flag names like `--mmproj` and `--image` should be verified against the installed version)
-- LUFS audio normalization via FFmpeg `loudnorm` filter: training data knowledge (HIGH confidence -- standard FFmpeg filter)
+- Codebase: `/home/adamh/ai-video-trailer/src/cinecut/` — all modules read directly (HIGH confidence)
+- librosa beat_track: [librosa 0.11.0 documentation](https://librosa.org/doc/main/generated/librosa.beat.beat_track.html) (MEDIUM confidence — docs URL confirmed, content from WebSearch)
+- FFmpeg sidechaincompress: [FFmpeg Filters Documentation](https://ffmpeg.org/ffmpeg-filters.html) (HIGH confidence — official docs)
+- FFmpeg adelay/amix: [FFmpeg Filters Documentation](https://ffmpeg.org/ffmpeg-filters.html) (HIGH confidence)
+- FFmpeg aevalsrc: [aevalsrc examples](https://hhsprings.bitbucket.io/docs/programming/examples/ffmpeg/audio_sources/aevalsrc.html) (MEDIUM confidence)
+- llama.cpp router mode (why to avoid): [HuggingFace blog: Model Management in llama.cpp](https://huggingface.co/blog/ggml-org/model-management-in-llamacpp), [GitHub Issue #13027](https://github.com/ggml-org/llama.cpp/issues/13027) (MEDIUM confidence — feature exists but build 8156 predates it)
+- llama-swap alternative: [mostlygeek/llama-swap](https://github.com/mostlygeek/llama-swap) — rejected as external proxy adds unnecessary complexity
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Package structure | HIGH | Standard Python packaging patterns, well-understood |
-| Pipeline orchestration | HIGH | Stage-based batch processing is a well-established pattern |
-| FFmpeg integration | HIGH | subprocess + builder is the standard approach |
-| Pydantic for schemas | HIGH | Pydantic v2 is the de facto standard for Python data validation |
-| PySceneDetect | MEDIUM | Well-known library but API details and current version should be verified |
-| llama-cli integration | MEDIUM | Flag names and multimodal workflow need verification against installed version |
-| Vibe profile YAML structure | HIGH | Design decision, not dependent on external factors |
-| VRAM management | HIGH | Sequential processing is the only safe approach on 12GB |
-| Manifest schema | HIGH | Design decision informed by FFmpeg capabilities |
-| Temp file lifecycle | HIGH | Design decision, standard patterns |
+| Stage ordering / dependencies | HIGH | Derived directly from reading existing code; logic is deterministic |
+| Manifest schema additions | HIGH | Design decisions informed by features; Pydantic patterns well-established |
+| SceneDescription cache interface | HIGH | Same atomic file pattern as existing checkpoint.py |
+| FFmpeg audio mix filtergraph | MEDIUM | Filtergraph structure correct; specific param tuning (duck_ratio, attack/release) needs empirical testing |
+| TextEngine + LlavaEngine sequencing | HIGH | Direct extension of existing LlavaEngine pattern |
+| Router mode rejection | MEDIUM | Build 8156 predates router mode; confirmed via web search; exact compatibility untested |
+| librosa BPM detection | MEDIUM | API confirmed; accuracy on non-music audio (film scores) may vary; beat snap threshold (0.3s) needs tuning |
+| SFX pre-rendering approach | MEDIUM | aevalsrc frequency sweep confirmed in FFmpeg docs; exact swoosh parameter tuning empirical |
+| Build order | HIGH | Each phase's dependencies are clearly traceable from the architecture |

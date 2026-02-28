@@ -1,415 +1,775 @@
 # Technology Stack
 
-**Project:** CineCut AI -- AI-driven video trailer generator
-**Researched:** 2026-02-26
-**Research mode:** Ecosystem (stack dimension)
-**Note on sources:** Web search and Context7 were unavailable during this research session. All recommendations are based on training knowledge (cutoff ~May 2025). Confidence levels are adjusted accordingly. Version numbers should be verified against PyPI at install time.
+**Project:** CineCut AI v2.0 — Structural & Sensory Overhaul
+**Researched:** 2026-02-28
+**Research mode:** Ecosystem (stack additions for v2.0 new features only)
+**Scope:** NEW capabilities only. Existing validated stack (Python 3.10+, Typer, Rich, Pydantic, pysubs2,
+OpenCV headless, NumPy, requests, FFmpeg subprocess, llama-server HTTP) is NOT re-researched here.
 
 ---
 
-## Recommended Stack
+## v2.0 New Dependencies Summary
 
-### Runtime Environment
+| Library | Version | Feature(s) Served | CUDA Required? |
+|---------|---------|-------------------|----------------|
+| `librosa` | `>=0.11.0` | BPM detection, beat grid | No — pure CPU |
+| `soundfile` | `>=0.12.1` | Audio I/O backend for librosa | No |
+| `soxr` | `>=0.3.2` | Resampling for librosa (already dep) | No |
+| `msgpack` | `>=1.0.0` | SceneDescription cache persistence | No |
+| `sentence-transformers` | `>=3.0.0` | Scene-to-zone text embedding (CPU mode) | Optional |
+| `requests` | already in stack | Jamendo API download | No |
+| FFmpeg `aevalsrc` / SoX `synth` | system tools | Transition SFX synthesis | No |
+| `llama-server` (existing binary) | build 8156 (pinned) | Text-only structural LLM stage | Yes (K6000, CUDA 11.4) |
 
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| Python | 3.10+ | Runtime | Match/case support, modern type hints (`X | Y`), required by project spec | HIGH |
-| FFmpeg | 6.x+ (system) | Video/audio processing | Industry standard, already on PATH per constraints | HIGH |
-| llama-cli | System-installed | LLM inference | Hard constraint -- CUDA 11.4 compatible build already on system | HIGH |
+---
 
-### CLI Framework
+## 1. BPM Detection
 
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| **Typer** | ~0.12+ | CLI interface | Built on Click, adds type-hint-driven argument parsing. Perfectly matches Python 3.10+ style. Auto-generates `--help`. Supports subcommands if needed later. Less boilerplate than Click, far more capable than argparse. | MEDIUM |
-| Rich | ~13.0+ | Terminal output | Progress bars for FFmpeg operations, styled tables for manifest preview, error formatting. Typer uses it automatically when installed. | MEDIUM |
+### Recommended: `librosa` 0.11.x
 
-**Why Typer over alternatives:**
-- **Over Click:** Typer is a thin layer on Click that leverages type annotations. Same ecosystem, less boilerplate. For a CLI like `cinecut <video> --vibe <name> [--review]`, Typer's decorator-based approach is cleaner.
-- **Over argparse:** argparse requires manual argument definitions, no auto-completion, no rich help formatting. It's stdlib but the DX is poor for anything beyond trivial CLIs.
-- **Over Fire:** Google's Fire auto-generates CLIs from any function, but gives less control over help text, validation, and argument types. Bad fit when CLI UX matters.
-
-### FFmpeg Subprocess Management
-
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| **subprocess (stdlib)** | built-in | FFmpeg process execution | Direct control over FFmpeg commands. No abstraction layer to fight. See rationale below. | HIGH |
-| shlex | built-in | Command string safety | Proper quoting of file paths with spaces/special chars | HIGH |
-
-**Why raw subprocess over ffmpeg-python:**
-
-This is the most important stack decision for this project. Use `subprocess.run()` and `subprocess.Popen()` directly. Do NOT use `ffmpeg-python`.
+**Decision: librosa 0.11.x, `librosa.beat.beat_track()` + `librosa.feature.tempo()`**
 
 Rationale:
-1. **ffmpeg-python is effectively unmaintained.** The `kkroening/ffmpeg-python` repo has had minimal activity. Forks exist but fragment the ecosystem. For a project that needs precise FFmpeg flag control (frame-accurate seeking with `-ss` before `-i`, LUFS normalization, LUT application, complex filter chains), an abstraction layer adds risk without proportional benefit.
-2. **CineCut needs precise FFmpeg invocations.** Frame-accurate seeking (`-ss` before `-i`), `loudnorm` filter chains, `lut3d` filter application, proxy creation with specific codec settings -- these are all easier to reason about as direct FFmpeg command strings than through a Python wrapper's API.
-3. **Debugging is simpler.** When an FFmpeg command fails, you want to see the exact command that was run. With subprocess, you have the command list directly. With a wrapper, you need to debug through the abstraction.
-4. **The project only needs ~5-8 distinct FFmpeg command patterns** (proxy creation, frame extraction, audio analysis, audio normalization, LUT application, segment extraction, final concatenation). A thin helper function wrapping subprocess is sufficient.
+- librosa is CPU-only — zero VRAM consumption, zero CUDA dependency. The K6000's 12GB is already
+  reserved for llama-server during inference; audio analysis must not contend for it.
+- `beat_track()` returns (tempo_bpm, beat_frames), which converts directly to a seconds-indexed beat
+  grid via `librosa.frames_to_time()`. This is exactly the BPM pacing grid the v2.0 assembler needs.
+- `librosa.feature.tempo()` provides a global BPM estimate without the beat-by-beat frame array —
+  useful for choosing a cut density per act without post-processing.
+- librosa 0.11.0 (released 2024) uses soundfile as default backend, so loading WAV/FLAC extracted
+  from film audio requires no ffmpeg Python bindings — just `subprocess` FFmpeg to extract the audio
+  track first, then librosa reads the WAV file.
+- Supports OGG (aubio does not), which matters if royalty-free music tracks are OGG-encoded.
 
-**Recommended pattern:**
+**Why not aubio:**
+- aubio is a C library with a thin Python wrapper; binary wheel availability on modern pip is inconsistent.
+  It is not pure-Python and has caused install failures on Linux when the system `libaudio` is absent.
+- aubio's BPM estimator clusters around 107 BPM and can produce half/double tempo errors without
+  correction. For a pacing grid where +/-5 BPM matters, this is an unacceptable failure mode.
+- aubio excels at real-time beat detection from microphone input — not relevant here.
+- librosa's `beat_track()` with `start_bpm` seeded from vibe profile (e.g., 130 BPM for Action,
+  80 BPM for Drama) produces more reliable results for offline analysis of known-genre audio.
+
+**Integration pattern:**
 
 ```python
 import subprocess
-import shlex
+import librosa
+import numpy as np
 from pathlib import Path
 
-def run_ffmpeg(args: list[str], description: str = "") -> subprocess.CompletedProcess:
-    """Run an FFmpeg command with standard error handling."""
-    cmd = ["ffmpeg", "-y", "-hide_banner"] + args
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=3600,  # 1 hour max per operation
-    )
-    if result.returncode != 0:
-        raise FFmpegError(f"FFmpeg failed ({description}): {result.stderr[-500:]}")
-    return result
+def extract_audio_for_analysis(video_path: Path, output_wav: Path) -> None:
+    """Extract mono 22050 Hz WAV from video — optimal for librosa analysis."""
+    subprocess.run([
+        "ffmpeg", "-y", "-hide_banner",
+        "-i", str(video_path),
+        "-vn",                          # no video
+        "-ac", "1",                     # mono
+        "-ar", "22050",                 # librosa default sample rate
+        "-c:a", "pcm_s16le",           # uncompressed WAV
+        str(output_wav),
+    ], check=True, capture_output=True)
 
-def run_ffprobe(args: list[str]) -> str:
-    """Run ffprobe and return stdout."""
-    cmd = ["ffprobe", "-v", "quiet"] + args
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    result.check_returncode()
-    return result.stdout
+def detect_bpm_and_beats(
+    wav_path: Path,
+    start_bpm: float = 120.0,
+) -> tuple[float, np.ndarray]:
+    """Returns (tempo_bpm, beat_times_seconds).
+
+    start_bpm should be seeded from vibe profile edit rate to avoid
+    half/double tempo errors.
+    """
+    y, sr = librosa.load(str(wav_path), sr=22050, mono=True)
+    tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr, start_bpm=start_bpm)
+    beat_times = librosa.frames_to_time(beat_frames, sr=sr)
+    return float(tempo), beat_times
 ```
 
-For long-running operations (proxy creation, final render), use `subprocess.Popen` with real-time stderr parsing to drive Rich progress bars:
+**pyproject.toml additions:**
 
-```python
-def run_ffmpeg_with_progress(args: list[str], duration_seconds: float) -> None:
-    """Run FFmpeg with real-time progress reporting."""
-    cmd = ["ffmpeg", "-y", "-hide_banner", "-progress", "pipe:1"] + args
-    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as proc:
-        for line in proc.stdout:
-            if line.startswith("out_time_ms="):
-                current_ms = int(line.split("=")[1])
-                progress = current_ms / (duration_seconds * 1_000_000)
-                # Update Rich progress bar here
+```toml
+"librosa>=0.11.0",
+"soundfile>=0.12.1",
+"soxr>=0.3.2",   # already pulled in by librosa but pin explicitly
 ```
 
-### Subtitle Parsing
-
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| **pysubs2** | ~1.7+ | SRT/ASS subtitle parsing | Handles both SRT and ASS/SSA in a single library. Clean API for iterating events, accessing timing, text content. More capable than pysrt (which is SRT-only). | MEDIUM |
-
-**Why pysubs2 over alternatives:**
-- **Over pysrt:** pysrt only handles SRT format. CineCut explicitly supports ASS format too. pysubs2 handles SRT, ASS, SSA, MicroDVD, and others with a unified API. Using pysrt would require a second library for ASS.
-- **Over srt (PyPI):** The `srt` package is minimal and SRT-only. Same problem as pysrt.
-- **Over regex parsing:** Subtitle formats have edge cases (styling tags in ASS, multi-line SRT entries, BOM markers). A library handles these correctly.
-
-**Usage pattern for narrative extraction:**
-
-```python
-import pysubs2
-
-subs = pysubs2.load("film.srt")  # or .ass -- auto-detected
-for event in subs:
-    start_seconds = event.start / 1000  # pysubs2 uses milliseconds
-    end_seconds = event.end / 1000
-    text = event.plaintext  # strips ASS styling tags
-    # Feed to narrative analysis
-```
-
-### JSON Manifest Validation
-
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| **Pydantic** | ~2.6+ | Manifest schema & validation | Type-safe models, automatic JSON serialization/deserialization, clear error messages. The `TRAILER_MANIFEST.json` is the central pipeline artifact -- it must be rigorously validated. | MEDIUM |
-
-**Why Pydantic over alternatives:**
-- **Over jsonschema:** jsonschema validates against JSON Schema specs but doesn't give you Python objects. Pydantic gives you validated Python dataclasses that serialize to/from JSON. For a manifest that both AI generates and Python code consumes, Pydantic is the right abstraction.
-- **Over dataclasses + json:** No validation, no type coercion, poor error messages when the LLM generates slightly wrong JSON.
-- **Over attrs:** attrs is excellent but Pydantic has first-class JSON support (`model.model_dump_json()`, `Model.model_validate_json()`). Since the manifest IS JSON, Pydantic's JSON ergonomics win.
-
-**Pydantic v2 is the target.** Pydantic v2 (rewritten with Rust core) is significantly faster than v1 and has been stable since mid-2023. Do not use Pydantic v1.
-
-**CUDA note:** Pydantic is pure Python + Rust extension. No CUDA dependency.
-
-**Manifest model sketch:**
-
-```python
-from pydantic import BaseModel, Field
-from enum import Enum
-
-class VibeProfile(str, Enum):
-    ACTION = "action"
-    HORROR = "horror"
-    # ... 18 vibes
-
-class ClipDecision(BaseModel):
-    start_time: float = Field(ge=0, description="Start time in seconds")
-    end_time: float = Field(gt=0, description="End time in seconds")
-    narrative_role: str = Field(description="e.g. 'inciting_incident', 'climax', 'money_shot'")
-    dialogue: str | None = Field(default=None, description="Associated subtitle text")
-    confidence: float = Field(ge=0, le=1)
-
-class TrailerManifest(BaseModel):
-    source_file: str
-    vibe: VibeProfile
-    target_duration: float = Field(default=120.0)
-    clips: list[ClipDecision]
-    audio_treatment: dict
-    lut_file: str
-```
-
-### Keyframe Extraction / Scene Detection
-
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| **FFmpeg scene filter** | (via FFmpeg) | Scene change detection | `select='gt(scene,0.3)'` filter detects scene boundaries natively. No Python library needed. Avoids loading video frames into Python memory. | HIGH |
-| **PySceneDetect** | ~0.6+ | Advanced scene detection (optional) | If FFmpeg's scene filter is insufficient, PySceneDetect offers content-aware and threshold-based detection. Uses OpenCV under the hood. | LOW |
-
-**Recommended approach: FFmpeg-native scene detection.**
-
-The Quadro K6000's 12GB VRAM is shared between LLaVA inference and FFmpeg. Loading frames into Python via OpenCV (which PySceneDetect requires) adds unnecessary memory pressure. FFmpeg can do scene detection directly:
-
-```bash
-# Extract frames at scene changes
-ffmpeg -i proxy.mp4 -vf "select='gt(scene,0.3)',showinfo" -vsync vfr frame_%04d.jpg
-
-# Get scene change timestamps without extracting frames
-ffmpeg -i proxy.mp4 -vf "select='gt(scene,0.3)',showinfo" -f null - 2>&1 | grep showinfo
-```
-
-**Strategy for CineCut:** Use a hybrid approach:
-1. **Subtitle-driven keyframes (primary):** Extract one frame per subtitle event at the midpoint timestamp. These are the frames that matter for narrative analysis.
-2. **Scene-change supplementary:** Use FFmpeg scene filter to detect major visual transitions between subtitle events. These catch "money shot" visual moments that have no dialogue.
-3. **Interval fallback:** For subtitle gaps > 30 seconds, extract frames at 10-second intervals to avoid missing long visual sequences.
-
-This avoids PySceneDetect entirely and keeps everything in the FFmpeg + subprocess domain.
-
-### Project Structure & Development
-
-| Technology | Version | Purpose | Why | Confidence |
-|------------|---------|---------|-----|------------|
-| **pyproject.toml** | PEP 621 | Project metadata & build | Modern Python packaging standard. Single source of truth for dependencies, scripts, and metadata. | HIGH |
-| **Ruff** | ~0.4+ | Linting + formatting | Replaces flake8 + black + isort. Extremely fast (Rust-based). The Python linting standard in 2025+. | MEDIUM |
-| **pytest** | ~8.0+ | Testing | Standard Python test framework. No justification needed. | HIGH |
-| **pathlib (stdlib)** | built-in | Path handling | Modern path manipulation. Every file path in the project should be a `Path` object, not a string. | HIGH |
-
-### Supporting Utilities
-
-| Library | Version | Purpose | When to Use | Confidence |
-|---------|---------|---------|-------------|------------|
-| **tomli** | ~2.0+ | TOML parsing | Only if Python < 3.11 (3.11+ has `tomllib` in stdlib). For reading config files. | MEDIUM |
-| **logging (stdlib)** | built-in | Structured logging | All pipeline stages should log to both console (via Rich handler) and file. | HIGH |
-| **tempfile (stdlib)** | built-in | Temp directory management | Proxy files, extracted frames, intermediate clips all go in managed temp dirs. | HIGH |
-| **json (stdlib)** | built-in | JSON I/O | For reading/writing manifest. Pydantic handles serialization, json handles the file I/O. | HIGH |
+**VRAM note:** librosa uses NumPy arrays, no GPU. Analysis of a 2-hour film's extracted audio WAV
+takes ~2-5 seconds on CPU with negligible memory. Run this during Stage 2 (ingestion) while
+llama-server is NOT running, to avoid any VRAM contention concerns.
 
 ---
 
-## FFmpeg Command Reference
+## 2. Royalty-Free Music Source
 
-These are the specific FFmpeg invocations CineCut will need. Documenting here because the FFmpeg flag ecosystem is vast and getting these wrong causes subtle bugs.
+### Recommended: Jamendo API v3
 
-### Proxy Creation (420p)
+**Decision: Jamendo API v3, `requests` (already in stack), no new library needed**
 
-```bash
-ffmpeg -i source.mkv \
-  -vf "scale=-2:420" \
-  -c:v libx264 -preset fast -crf 28 \
-  -c:a aac -b:a 128k \
-  -movflags +faststart \
-  proxy.mp4
+Rationale:
+- Jamendo offers 600,000+ tracks under Creative Commons licenses. The API is free with a registered
+  `client_id` (developer account registration is free and instant).
+- The `/tracks/` endpoint supports `tags` parameter (mood, genre, instruments) and returns an
+  `audiodownload` field — a direct MP3 download URL requiring only `requests.get()`.
+- No authentication token needed for read-only track search: `client_id` query parameter only.
+- `zip_allowed` field (added 2021) indicates per-track download permission; filter `zip_allowed=true`
+  at query time to avoid downloading tracks that block bulk use.
+- The API is stable (v3 since ~2015, still active 2025) with no deprecation signals.
+
+**Why not Free Music Archive (FMA):**
+- FMA's programmatic API requires an API key that must be requested (not self-service), and the FMA
+  web infrastructure has had availability issues. Jamendo is more reliable for automation.
+- FMA does not expose a `mood` filter directly; mood tags are inconsistent across tracks.
+- FMA's catalog (~100K tracks) is smaller than Jamendo's (~600K), meaning worse vibe-to-music
+  matching for the 18 vibe profiles.
+
+**Why not ccMixter:**
+- ccMixter has no formal REST API for automated search and download. It is a community site for
+  remix culture, not a structured music library with mood/genre metadata.
+
+**Vibe-to-tag mapping (recommended):**
+
+```python
+VIBE_JAMENDO_TAGS: dict[str, list[str]] = {
+    "action":       ["action", "epic", "energetic", "fast"],
+    "adventure":    ["adventure", "cinematic", "orchestral"],
+    "animation":    ["playful", "whimsical", "cartoon"],
+    "comedy":       ["funny", "quirky", "playful"],
+    "crime":        ["dark", "tension", "noir"],
+    "documentary":  ["ambient", "documentary", "neutral"],
+    "drama":        ["emotional", "dramatic", "piano"],
+    "family":       ["cheerful", "happy", "family"],
+    "fantasy":      ["epic", "orchestral", "fantasy"],
+    "history":      ["orchestral", "classical", "cinematic"],
+    "horror":       ["dark", "horror", "tense", "scary"],
+    "music":        ["music", "soundtrack", "instrumental"],
+    "mystery":      ["suspense", "mysterious", "dark"],
+    "romance":      ["romantic", "love", "soft"],
+    "sci-fi":       ["electronic", "futuristic", "sci-fi"],
+    "thriller":     ["tension", "suspense", "dark"],
+    "war":          ["orchestral", "dramatic", "epic", "military"],
+    "western":      ["country", "western", "guitar"],
+}
 ```
 
-**Key flags:**
-- `scale=-2:420` -- height 420, width auto-adjusted to maintain aspect ratio (even number)
-- `-crf 28` -- low quality is fine for analysis proxy
-- `-preset fast` -- don't waste time on proxy encoding
-- `-movflags +faststart` -- enables seeking without downloading entire file
+**Auto-download pattern (cache on first use):**
 
-### Frame Extraction (at specific timestamps)
+```python
+import hashlib
+import requests
+from pathlib import Path
 
-```bash
-# Fast extraction using -ss BEFORE -i (input seeking, not output seeking)
-ffmpeg -ss 00:15:23.500 -i proxy.mp4 \
-  -frames:v 1 -q:v 2 \
-  frame_0001.jpg
+JAMENDO_CLIENT_ID = "YOUR_CLIENT_ID"   # register at developer.jamendo.com
+MUSIC_CACHE_DIR = Path("~/.cinecut/music_cache").expanduser()
+
+def fetch_vibe_music(vibe: str, cache_dir: Path = MUSIC_CACHE_DIR) -> Path:
+    """Download a royalty-free track for vibe. Returns cached path on subsequent calls."""
+    tags = VIBE_JAMENDO_TAGS.get(vibe, ["cinematic"])
+    tag_key = hashlib.md5("|".join(tags).encode()).hexdigest()[:8]
+    cached = cache_dir / f"{vibe}_{tag_key}.mp3"
+    if cached.exists():
+        return cached
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    params = {
+        "client_id": JAMENDO_CLIENT_ID,
+        "format": "json",
+        "limit": 5,
+        "tags": "+".join(tags),
+        "audioformat": "mp32",          # 320 kbps MP3
+        "include": "musicinfo",
+        "groupby": "artist_id",         # variety across artists
+    }
+    resp = requests.get("https://api.jamendo.com/v3.0/tracks/", params=params, timeout=10)
+    resp.raise_for_status()
+    tracks = resp.json().get("results", [])
+    if not tracks:
+        raise RuntimeError(f"No Jamendo tracks found for vibe '{vibe}' with tags {tags}")
+
+    # Pick first track with audiodownload available
+    for track in tracks:
+        dl_url = track.get("audiodownload")
+        if dl_url:
+            audio = requests.get(dl_url, timeout=30)
+            audio.raise_for_status()
+            cached.write_bytes(audio.content)
+            return cached
+
+    raise RuntimeError(f"No downloadable tracks found for vibe '{vibe}'")
 ```
 
-**Critical:** `-ss` MUST come before `-i` for fast seeking. Placing it after `-i` causes FFmpeg to decode every frame up to the seek point.
-
-### Audio LUFS Analysis
-
-```bash
-ffmpeg -i source.mkv -af "loudnorm=I=-14:TP=-1:LRA=11:print_format=json" -f null - 2>&1
-```
-
-This outputs JSON with measured loudness values. Parse the JSON from stderr to get `input_i`, `input_tp`, `input_lra`, `input_thresh`.
-
-### Audio LUFS Normalization (Two-Pass)
-
-**Pass 1 (analysis):**
-```bash
-ffmpeg -i source.mkv \
-  -af "loudnorm=I=-14:TP=-1.5:LRA=11:print_format=json" \
-  -f null -
-```
-
-**Pass 2 (normalization with measured values):**
-```bash
-ffmpeg -i source.mkv \
-  -af "loudnorm=I=-14:TP=-1.5:LRA=11:measured_I=-18.2:measured_TP=-3.1:measured_LRA=8.5:measured_thresh=-28.5:linear=true" \
-  -c:v copy \
-  normalized.mkv
-```
-
-**LUFS targets by vibe category (recommended):**
-
-| Vibe Category | Target LUFS (I) | True Peak (TP) | Rationale |
-|---------------|-----------------|----------------|-----------|
-| Action, Thriller, War, Horror | -12 | -1.0 | Loud, punchy, high energy |
-| Drama, Romance, History, Mystery | -16 | -1.5 | Dialogue-forward, dynamic range preserved |
-| Comedy, Family, Animation | -14 | -1.5 | Balanced, broadcast-standard |
-| Documentary, Music | -14 | -1.0 | Broadcast standard |
-| Sci-Fi, Fantasy, Adventure, Western, Crime | -14 | -1.0 | Balanced with headroom for effects |
-
-### LUT Application
-
-```bash
-ffmpeg -i source.mkv \
-  -vf "lut3d=file=vibe_horror.cube" \
-  -c:v libx264 -crf 18 \
-  -c:a copy \
-  graded.mp4
-```
-
-**Key:** The `lut3d` filter reads `.cube` files directly. No conversion needed.
-
-### Segment Extraction (Frame-Accurate)
-
-```bash
-ffmpeg -ss 00:15:23.500 -i source.mkv \
-  -to 00:00:05.000 \
-  -c:v libx264 -crf 18 \
-  -c:a aac -b:a 192k \
-  -avoid_negative_ts make_zero \
-  segment_001.mp4
-```
-
-**Key flags:**
-- `-ss` before `-i` for fast input seeking
-- `-to` is duration relative to `-ss`, not absolute timestamp
-- `-avoid_negative_ts make_zero` prevents audio sync issues at cut points
-
-### Final Concatenation
-
-```bash
-# Using concat demuxer (file-based, most reliable)
-ffmpeg -f concat -safe 0 -i segments.txt \
-  -c:v libx264 -crf 18 -preset slow \
-  -c:a aac -b:a 192k \
-  -movflags +faststart \
-  trailer.mp4
-```
-
-Where `segments.txt` contains:
-```
-file 'segment_001.mp4'
-file 'segment_002.mp4'
-...
-```
-
-**Note:** Using the concat demuxer (not the concat filter) avoids re-encoding if segments have matching codecs. For CineCut, segments will likely need re-encoding anyway due to LUT application, so the concat demuxer with re-encode is fine.
+**Licensing note:** All Jamendo tracks are Creative Commons. Most are CC-BY or CC-BY-SA, which require
+attribution in the final output. For a local tool generating personal-use trailers, this is acceptable.
+If the tool is ever distributed with pre-cached music, the most restrictive license (CC-BY-SA) applies.
 
 ---
 
-## LLaMA CLI Integration
+## 3. Transition SFX Synthesis
 
-### Interface Strategy: subprocess with structured prompting
+### Recommended: FFmpeg `aevalsrc` + SoX `synth` via subprocess
 
-llama-cli is invoked via subprocess. No Python bindings, no IPC, no server mode. Simple command execution.
+**Decision: No new Python library. Synthesize via FFmpeg `aevalsrc` for frequency sweeps; SoX
+`synth` for complementary layering. Both are already on PATH.**
 
-```python
-def run_llama_cli(
-    prompt: str,
-    image_path: Path | None = None,
-    max_tokens: int = 512,
-) -> str:
-    """Run llama-cli and return generated text."""
-    cmd = [
-        "llama-cli",
-        "--model", str(MODEL_PATH),
-        "--prompt", prompt,
-        "--n-predict", str(max_tokens),
-        "--temp", "0.1",  # Low temp for analytical tasks
-        "--ctx-size", "2048",
-        "--n-gpu-layers", "35",  # Offload to K6000
-    ]
-    if image_path:
-        cmd.extend(["--image", str(image_path)])
+Rationale:
+- Both FFmpeg and SoX are already required system dependencies. Zero new installs.
+- Synthesis happens at conform time (Stage 6), so it runs AFTER llama-server has exited — no VRAM
+  contention. FFmpeg's audio filters are fully CPU-bound.
+- The resulting SFX WAV/FLAC files are deterministic: same vibe always generates the same SFX,
+  enabling caching with a simple hash of the generation parameters.
 
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    result.check_returncode()
-    return result.stdout
+**SFX types needed for v2.0 transition types:**
+
+| Transition Type | SFX Description | Generator |
+|----------------|----------------|-----------|
+| `hard_cut` | Silence (no SFX) | N/A |
+| `crossfade` | Soft low-frequency exhale | FFmpeg aevalsrc |
+| `fade_to_black` | Low rumble decay | FFmpeg aevalsrc |
+| `fade_to_white` | High-frequency sweep out | SoX synth |
+| `beat_cut` (new) | Sharp transient punch | SoX synth |
+| `whoosh_forward` (new) | Ascending frequency sweep | SoX synth |
+| `whoosh_backward` (new) | Descending frequency sweep | SoX synth |
+
+**FFmpeg `aevalsrc` — soft low-frequency exhale (crossfade SFX):**
+
+```bash
+# Generate 0.5s low-frequency ambient exhale (100-200 Hz with envelope decay)
+ffmpeg -y -f lavfi \
+  -i "aevalsrc=0.3*sin(2*PI*120*t)*exp(-3*t):d=0.5:s=44100:c=stereo" \
+  -c:a flac crossfade_sfx.flac
 ```
 
-**Key considerations:**
-1. **VRAM management:** llama-cli loads the model into VRAM on each invocation. For batch processing (many frames), this means repeated model loading. Mitigation: batch multiple frames per invocation where possible, or investigate llama-cli's `--interactive` mode for session reuse.
-2. **llama-cli server mode alternative:** `llama-server` (part of llama.cpp) runs an HTTP server. Could invoke once, then hit `http://localhost:8080/completion` for each frame. This avoids repeated model loading. Worth investigating in Phase 1 -- would be a major performance win.
-3. **Structured output:** Prompt LLaVA to return JSON. Parse with Pydantic. Include retry logic for malformed JSON responses.
-4. **CUDA 11.4 compatibility:** llama.cpp supports CUDA 11.4 via the `LLAMA_CUDA=1` build flag with appropriate CUDA toolkit. The system has a pre-built llama-cli, so this is already handled.
+**SoX `synth` — ascending whoosh (beat_drop, escalation transitions):**
 
-### VRAM Budget
+```bash
+# Generate 0.4s ascending sine sweep 80Hz->1200Hz (whoosh forward)
+sox -n -r 44100 -c 2 whoosh_up.flac \
+  synth 0.4 sine 80-1200 \
+  fade h 0.01 0.4 0.1 \
+  vol 0.6
 
-| Process | Estimated VRAM | When |
-|---------|---------------|------|
-| LLaVA 7B (Q4_K_M quantized) | ~4.5 GB | During inference |
-| LLaVA 13B (Q4_K_M quantized) | ~8.5 GB | During inference |
-| FFmpeg (proxy creation) | ~200 MB | Before inference |
-| FFmpeg (segment extraction) | ~500 MB | After inference |
-| FFmpeg (LUT application) | ~300 MB | After inference |
+# Generate 0.4s descending sweep 1200Hz->80Hz (whoosh backward)
+sox -n -r 44100 -c 2 whoosh_down.flac \
+  synth 0.4 sine 1200-80 \
+  fade h 0.01 0.4 0.1 \
+  vol 0.6
+```
 
-**Recommendation:** Use LLaVA 7B (Q4_K_M) for safety margin. 13B is possible but leaves minimal headroom. The pipeline should never run LLaVA inference concurrently with heavy FFmpeg operations.
+**SoX `synth` — transient punch (beat cut):**
+
+```bash
+# Generate 0.15s sharp transient (sub-bass thud with high decay)
+sox -n -r 44100 -c 2 punch.flac \
+  synth 0.15 sine 60-20 \
+  fade h 0.005 0.15 0.05 \
+  vol 0.8
+```
+
+**Key SoX flags:**
+- `-n` — null input (no source file needed)
+- `synth [dur] sine [start_hz]-[end_hz]` — frequency sweep over duration
+- `fade h [in] [out_point] [out_dur]` — half-cosine fade (smooth envelope)
+- `vol [level]` — peak amplitude control
+
+**Python synthesis helper:**
+
+```python
+import subprocess
+from pathlib import Path
+
+SFX_CACHE = Path("~/.cinecut/sfx_cache").expanduser()
+
+def synthesize_sfx(
+    sfx_type: str,   # "whoosh_up" | "whoosh_down" | "punch" | "exhale"
+    vibe: str,       # For vibe-specific tuning
+    duration_s: float = 0.4,
+) -> Path:
+    """Generate transition SFX file, cached by type+vibe+duration."""
+    SFX_CACHE.mkdir(parents=True, exist_ok=True)
+    out = SFX_CACHE / f"{sfx_type}_{vibe}_{duration_s:.2f}.flac"
+    if out.exists():
+        return out
+
+    if sfx_type == "whoosh_up":
+        subprocess.run([
+            "sox", "-n", "-r", "44100", "-c", "2", str(out),
+            "synth", str(duration_s), "sine", "80-1200",
+            "fade", "h", "0.01", str(duration_s), "0.1",
+            "vol", "0.6",
+        ], check=True, capture_output=True)
+    elif sfx_type == "whoosh_down":
+        subprocess.run([
+            "sox", "-n", "-r", "44100", "-c", "2", str(out),
+            "synth", str(duration_s), "sine", "1200-80",
+            "fade", "h", "0.01", str(duration_s), "0.1",
+            "vol", "0.6",
+        ], check=True, capture_output=True)
+    elif sfx_type == "punch":
+        subprocess.run([
+            "sox", "-n", "-r", "44100", "-c", "2", str(out),
+            "synth", "0.15", "sine", "60-20",
+            "fade", "h", "0.005", "0.15", "0.05",
+            "vol", "0.8",
+        ], check=True, capture_output=True)
+    elif sfx_type == "exhale":
+        subprocess.run([
+            "ffmpeg", "-y", "-f", "lavfi",
+            "-i", f"aevalsrc=0.3*sin(2*PI*120*t)*exp(-3*t):d={duration_s}:s=44100:c=stereo",
+            "-c:a", "flac", str(out),
+        ], check=True, capture_output=True)
+    return out
+```
+
+**VRAM note:** Both FFmpeg and SoX audio synthesis are 100% CPU-bound. SFX generation takes
+<100ms per file, is cached after first run, and can run at any pipeline stage.
 
 ---
 
-## LUT File Sourcing
+## 4. Scene-to-Zone Matching (Semantic Embedding)
 
-### Free/Open LUT Sources
+### Recommended: `sentence-transformers` 3.x, CPU mode, all-MiniLM-L6-v2
 
-| Source | URL | License | Notes | Confidence |
-|--------|-----|---------|-------|------------|
-| **Free LUTs by Lutify.me** | lutify.me/free-luts | Free for personal/commercial | High-quality cinematic LUTs, .cube format | MEDIUM |
-| **RocketStock Free LUTs** | rocketstock.com | Free download | 35 free cinematic LUTs, widely used in video community | MEDIUM |
-| **Ground Control Color** | groundcontrolcolor.com | Free tier available | Film emulation LUTs (Kodak, Fuji looks) | LOW |
-| **SmallHD Movie Look LUTs** | smallhd.com | Free download | Designed for film-style color grading | LOW |
-| **Juan Melara Free LUTs** | juanmelara.com | Free for commercial use | ACES-based film look LUTs | LOW |
-| **Generate programmatically** | N/A | N/A | Use Colour Science (Python) to generate .cube files from color transform definitions | MEDIUM |
+**Decision: sentence-transformers 3.x with all-MiniLM-L6-v2 model, text-only, CPU inference.**
 
-**Recommended approach for 18 vibes:**
+Context: The two-stage LLM pipeline works as follows:
+1. **Stage A** (text-only, this section): Feed subtitle text blocks to a lightweight LLM
+   (llama-server) to produce structural anchors: `BEGIN_T`, `ESCALATION_T`, `CLIMAX_T` timestamps.
+2. **Stage B** (this section): Match each `SceneDescription.visual_content` string
+   (already extracted by LLaVA in Stage 4) to its nearest narrative zone
+   (BEGIN / ESCALATION / CLIMAX) using cosine similarity on text embeddings.
 
-1. **Start with 3-4 high-quality free LUTs** that cover broad looks (warm/cool/desaturated/high-contrast)
-2. **Programmatically generate variants** using the `colour-science` Python library to create .cube files with specific transforms per vibe
-3. **Each vibe's LUT should encode:** contrast curve, saturation shift, color temperature, and tint
+Stage B does NOT need vision/image embeddings. The LLaVA model already produced text descriptions
+from keyframes. Zone matching is text-to-text cosine similarity between the scene's description
+and the zone's defining anchor sentences.
 
-**Generating .cube files programmatically:**
+Rationale for sentence-transformers / all-MiniLM-L6-v2:
+- `all-MiniLM-L6-v2` is 22 MB, infers on CPU in ~1-2ms per sentence. Embedding all
+  SceneDescriptions for a 2-hour film (~150-300 scenes) completes in under 1 second on CPU.
+- No CUDA dependency. sentence-transformers auto-detects GPU but falls back gracefully to CPU —
+  critical given CUDA 11.4 / Kepler constraints (see CUDA section below).
+- Pure text matching avoids the CLIP/PyTorch dependency chain entirely. CLIP requires PyTorch,
+  and PyTorch 2.x dropped CUDA 11.4 support (last compatible: PyTorch 1.13.1). Installing
+  PyTorch 1.13.1 for a 22MB embedding model is inadvisable.
+- The semantic embedding approach is well-suited for narrative zone matching: zones are defined
+  by their characteristic language ("conflict", "resolution", "confrontation") and
+  SceneDescriptions contain exactly the natural-language descriptions that embed into the same
+  space.
+
+**Why not open_clip:**
+- open_clip requires PyTorch. PyTorch 2.x does not support CUDA 11.4. PyTorch 1.13.1 supports
+  CUDA 11.4 but is EOL (security risk, no updates). The Kepler architecture (compute capability
+  3.5) was dropped from PyTorch prebuilt wheels; installing it requires building from source.
+- The CLIP image-text embedding approach would add marginal benefit over text-text matching
+  because the LLaVA stage already produced rich text descriptions of each frame.
+- open_clip adds 400-800 MB of model weight on top of PyTorch's 2GB+ install footprint.
+  Avoid entirely.
+
+**CUDA compatibility warning for sentence-transformers:**
+sentence-transformers depends on `transformers` which depends on PyTorch. When installing,
+force CPU-only PyTorch to avoid pulling in a CUDA-incompatible wheel:
+
+```bash
+# Install CPU-only PyTorch FIRST to avoid CUDA wheel auto-selection
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install sentence-transformers>=3.0.0
+```
+
+This produces a functional install with no CUDA dependency. All-MiniLM-L6-v2 on CPU handles
+300 embeddings in <2 seconds — no GPU needed for this workload.
+
+**Zone matching pattern:**
 
 ```python
-# colour-science can generate 3D LUT .cube files
-# This avoids sourcing 18 separate third-party LUTs
+from sentence_transformers import SentenceTransformer
 import numpy as np
 
-def generate_cube_lut(
-    size: int = 33,
-    contrast: float = 1.0,
-    saturation: float = 1.0,
-    temperature_shift: float = 0.0,  # -1 cool to +1 warm
-    output_path: str = "vibe.cube",
-) -> None:
-    """Generate a .cube LUT file with specified color transforms."""
-    # ... implementation using numpy color transforms
+_model: SentenceTransformer | None = None
+
+def _get_model() -> SentenceTransformer:
+    global _model
+    if _model is None:
+        # Force CPU — never use GPU for this; VRAM is reserved for llama-server.
+        _model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
+    return _model
+
+def match_scene_to_zone(
+    scene_description: str,
+    zone_anchors: dict[str, str],  # {"begin": "...", "escalation": "...", "climax": "..."}
+) -> str:
+    """Return zone name (begin/escalation/climax) with highest cosine similarity."""
+    model = _get_model()
+    texts = [scene_description] + list(zone_anchors.values())
+    embeddings = model.encode(texts, normalize_embeddings=True)
+    scene_emb = embeddings[0]
+    zone_embs = embeddings[1:]
+    scores = np.dot(zone_embs, scene_emb)     # cosine similarity (normalized)
+    best_idx = int(np.argmax(scores))
+    return list(zone_anchors.keys())[best_idx]
 ```
 
-The `.cube` format is simple: a header line (`LUT_3D_SIZE 33`) followed by RGB triplets. Generating these is straightforward with NumPy -- no third-party LUT library required.
+**pyproject.toml addition:**
+```toml
+# CPU-only PyTorch must be installed BEFORE this in requirements workflow
+"sentence-transformers>=3.0.0",
+```
+
+---
+
+## 5. Text-Only Structural LLM (Stage A)
+
+### Recommended: Mistral-7B-Instruct-v0.3.Q4_K_M.gguf via existing llama-server
+
+**Decision: Mistral 7B Instruct v0.3 Q4_K_M GGUF, served by the SAME llama-server binary
+(build 8156) already on the system, on a different port (8090) to avoid conflict with LLaVA.**
+
+Rationale for Mistral 7B v0.3:
+- Q4_K_M quantization = ~4.37 GB VRAM. The K6000 has 12 GB; LLaVA (Stage 4) uses ~5-6 GB.
+  These two inference stages never run concurrently (sequential pipeline + GPU_LOCK), so
+  Mistral 7B fits comfortably within budget.
+- Mistral 7B Instruct v0.3 introduced function calling support and improved instruction
+  following over v0.1 — critical for reliable JSON output from the structural analysis prompt
+  (BEGIN_T / ESCALATION_T / CLIMAX_T values must parse deterministically).
+- Mistral 7B consistently outperforms LLaMA 2 7B on instruction-following tasks at the same
+  quantization level.
+- v0.3 is available in Q4_K_M GGUF from multiple verified sources (bartowski, QuantFactory
+  on Hugging Face) — no custom build needed.
+
+**Why not LLaMA 3.1 8B:**
+- LLaMA 3.1 8B Q4_K_M is ~5.0 GB, leaving tighter margin vs. Mistral 7B's ~4.37 GB.
+- More importantly: LLaMA 3.1 uses a BPE tokenizer with a 128K vocab that is SLOWER on the
+  K6000 (Kepler architecture) due to the larger embedding lookup. Mistral 7B's tokenizer
+  (32K vocab, SentencePiece) is faster on older GPU architectures.
+- LLaMA 3.1 GGUF files are architecturally newer and may require a newer llama-server binary.
+  Mistral 7B v0.3 GGUF is compatible with the llama.cpp build 8156 already on the system.
+
+**CRITICAL: The existing llama-server binary (build 8156) MUST be used.**
+Modern llama.cpp (2024+) dropped prebuilt CUDA support for compute capability 3.5 (Kepler /
+K6000). The system's build 8156 was custom-compiled for K6000 + CUDA 11.4 and has the working
+mmproj binary patch. Do NOT upgrade llama-server for v2.0 features. The text-only Mistral
+inference is a standard completion call — build 8156 fully supports it.
+
+**Two-server vs. one-server approach:**
+Run Mistral text analysis on port 8090 as a SEPARATE llama-server instance from the LLaVA
+instance (port 8089). They never run simultaneously (GPU_LOCK serializes all inference stages).
+This avoids needing to manage model hot-swapping within a single server process and keeps the
+LlavaEngine context manager pattern clean.
+
+**Structural analysis prompt design:**
+
+The subtitle text for the entire film is ~15-40 KB. Pass it in a single request with a
+structured JSON output requirement:
+
+```python
+STRUCTURAL_ANALYSIS_PROMPT = """
+You are a film narrative analyst. Given the full subtitle text of a film,
+identify three structural turning points. Return ONLY a JSON object with
+these exact keys:
+
+{
+  "BEGIN_T": <float>,       // Timestamp (seconds) where the story's central
+                            // conflict or question becomes clear
+  "ESCALATION_T": <float>,  // Timestamp where tension escalates significantly;
+                            // often a reversal or revelation
+  "CLIMAX_T": <float>       // Timestamp of peak dramatic tension; the point
+                            // of no return
+}
+
+Subtitle text:
+{subtitle_text}
+"""
+```
+
+**VRAM budget confirmation:**
+
+| Stage | Process | VRAM | When |
+|-------|---------|------|------|
+| Stage 2 (ingestion) | librosa BPM analysis | 0 MB | Before llama-server |
+| Stage 3 (structural LLM) | Mistral 7B Q4_K_M | ~4,370 MB | llama-server port 8090 |
+| Stage 4 (LLaVA vision) | LLaVA 7B + mmproj | ~5,500 MB | llama-server port 8089 |
+| Stage 5 (zone matching) | sentence-transformers CPU | 0 MB | After llama-server exits |
+| Stage 6 (conform) | FFmpeg (CPU) | ~200 MB | After all LLM stages |
+
+GPU_LOCK ensures Stage 3 and Stage 4 never overlap.
+
+---
+
+## 6. Audio Extraction at Exact Timestamps (Protagonist VO)
+
+### Recommended: subprocess FFmpeg with `-ss` / `-t` (existing pattern, no new library)
+
+**Decision: Use the existing `subprocess` FFmpeg pattern. No new library needed.**
+
+Rationale:
+- The existing codebase already uses `subprocess.run(["ffmpeg", ...])` for all FFmpeg operations.
+  Adding another library (ffmpeg-python, pydub) would create two parallel FFmpeg invocation
+  patterns in the same codebase — a maintenance problem.
+- FFmpeg's `-ss` (seek) and `-t` (duration) flags with decimal seconds provide millisecond
+  precision for audio clip extraction. This matches pysubs2's millisecond timestamps directly.
+- The protagonist VO extraction reads from the ORIGINAL high-bitrate source file (not the proxy),
+  since audio quality is the goal.
+
+**Exact-timestamp audio extraction pattern:**
+
+```python
+import subprocess
+from pathlib import Path
+
+def extract_audio_segment(
+    source_path: Path,
+    start_s: float,
+    end_s: float,
+    output_path: Path,
+    normalize_lufs: float | None = None,
+) -> None:
+    """Extract audio clip from video at exact timestamps.
+
+    Uses input-side seeking (-ss before -i) for fast seek,
+    then -t for duration to avoid decode-to-timestamp inefficiency.
+    """
+    duration_s = end_s - start_s
+    if duration_s <= 0:
+        raise ValueError(f"end_s ({end_s}) must be > start_s ({start_s})")
+
+    cmd = [
+        "ffmpeg", "-y", "-hide_banner",
+        "-ss", f"{start_s:.6f}",   # 6 decimal places = microsecond precision
+        "-i", str(source_path),
+        "-t", f"{duration_s:.6f}",
+        "-vn",                      # strip video stream
+        "-c:a", "pcm_s16le",       # lossless WAV for VO clips
+        "-ar", "48000",             # 48 kHz (broadcast standard)
+        "-ac", "2",                 # stereo
+        str(output_path),
+    ]
+
+    if normalize_lufs is not None:
+        # Apply loudnorm for VO level matching — single-pass (VO clips are short)
+        cmd = [
+            "ffmpeg", "-y", "-hide_banner",
+            "-ss", f"{start_s:.6f}",
+            "-i", str(source_path),
+            "-t", f"{duration_s:.6f}",
+            "-vn",
+            "-af", f"loudnorm=I={normalize_lufs}:TP=-1.5:LRA=11",
+            "-c:a", "pcm_s16le",
+            "-ar", "48000",
+            "-ac", "2",
+            str(output_path),
+        ]
+
+    subprocess.run(cmd, check=True, capture_output=True)
+```
+
+**Subtitle timestamp → seconds conversion (already in pysubs2 workflow):**
+
+```python
+# pysubs2 stores timestamps in milliseconds
+start_s = event.start / 1000.0   # e.g., 5423.250 seconds
+end_s   = event.end   / 1000.0
+```
+
+**Why not pydub:** pydub is a higher-level audio library but requires ffmpeg anyway, adds a
+Python data-copy layer for the audio buffer, and has no advantage over direct subprocess FFmpeg
+for simple segment extraction.
+
+**Why not ffmpeg-python:** Already documented in existing STACK.md — unmaintained, adds
+abstraction indirection. The v2.0 VO extraction is 3 lines of subprocess; no wrapper needed.
+
+---
+
+## 7. SceneDescription Persistence (Cache for Resume)
+
+### Recommended: `msgpack` 1.x + atomic file write (existing pattern)
+
+**Decision: msgpack binary file per run, written atomically, stored alongside the manifest.**
+
+Rationale:
+- The existing pipeline uses atomic checkpoint writes (tempfile + os.replace) for
+  TRAILER_MANIFEST.json. The same pattern applies to the inference cache.
+- msgpack serializes Python dicts/lists to binary ~30% smaller than JSON and ~60% faster to
+  deserialize than pickle. For ~300 SceneDescription objects (each a small dict with 4 string
+  fields), msgpack deserialization is <10ms.
+- msgpack is pure Python wheels available on all platforms — no binary extension compile issues.
+- Unlike pickle, msgpack is not executable — loading a corrupted cache cannot execute arbitrary
+  code. This is a non-trivial concern when cache files may persist across code changes.
+- Unlike SQLite, msgpack requires no schema migration when SceneDescription fields are added in
+  future versions (new keys are silently ignored on load; missing keys get defaults).
+- msgpack 1.0.x is the stable current release; the API has been stable since 1.0.0 (2020).
+
+**Why not pickle:**
+- pickle is CPython-version and class-definition sensitive. If SceneDescription's import path
+  changes (e.g., module refactor), the pickle file becomes unreadable.
+- Arbitrary code execution risk on load — never acceptable for user-facing tools.
+
+**Why not SQLite:**
+- SQLite adds schema management overhead. SceneDescription is a flat dict-of-dicts; relational
+  storage adds no query benefit over a flat file.
+- SQLite write performance (WAL mode) is slower than a single atomic msgpack file write for
+  batch-insert of 300 records at pipeline completion.
+- Schema migrations are required when SceneDescription fields change — unacceptable complexity
+  for a cache that should be transparent and discardable.
+
+**Why not JSON:**
+- JSON stores 300 SceneDescription objects in ~80-120 KB, msgpack in ~50-70 KB. Performance
+  difference is marginal at this scale, but msgpack's binary format avoids string escaping
+  issues if any SceneDescription text contains special Unicode characters from film subtitles.
+- JSON is human-readable, which is a benefit — but the manifest (TRAILER_MANIFEST.json) is
+  already the human-readable artifact. The cache is internal/disposable.
+
+**Persistence format:**
+
+```python
+import msgpack
+import os
+import tempfile
+from pathlib import Path
+from cinecut.inference.models import SceneDescription
+
+CACHE_SCHEMA_VERSION = 1
+
+def save_scene_cache(
+    results: list[tuple],   # list[(KeyframeRecord, SceneDescription | None)]
+    cache_path: Path,
+) -> None:
+    """Atomically write SceneDescription cache to disk."""
+    payload = {
+        "schema_version": CACHE_SCHEMA_VERSION,
+        "scenes": [
+            {
+                "timestamp_s": record.timestamp_s,
+                "frame_path": record.frame_path,
+                "source": record.source,
+                "description": {
+                    "visual_content": desc.visual_content,
+                    "mood": desc.mood,
+                    "action": desc.action,
+                    "setting": desc.setting,
+                } if desc is not None else None,
+            }
+            for record, desc in results
+        ],
+    }
+    packed = msgpack.packb(payload, use_bin_type=True)
+
+    # Atomic write — same pattern as checkpoint.py
+    tmp_fd, tmp_path = tempfile.mkstemp(
+        dir=cache_path.parent, suffix=".tmp"
+    )
+    try:
+        with os.fdopen(tmp_fd, "wb") as f:
+            f.write(packed)
+        os.replace(tmp_path, cache_path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+def load_scene_cache(cache_path: Path) -> list[tuple] | None:
+    """Load SceneDescription cache. Returns None if missing or version mismatch."""
+    if not cache_path.exists():
+        return None
+    try:
+        with open(cache_path, "rb") as f:
+            payload = msgpack.unpackb(f.read(), raw=False)
+        if payload.get("schema_version") != CACHE_SCHEMA_VERSION:
+            return None    # Stale cache — re-run inference
+        return payload["scenes"]
+    except (msgpack.UnpackException, KeyError, TypeError):
+        return None    # Corrupted cache — re-run inference
+```
+
+**Cache file naming convention:** Store alongside the manifest as
+`TRAILER_MANIFEST.scene_cache.msgpack`. Deleted automatically on full pipeline re-run.
+User can delete manually to force inference re-run (equivalent behavior to v1.0).
+
+**pyproject.toml addition:**
+```toml
+"msgpack>=1.0.0",
+```
+
+---
+
+## Complete v2.0 pyproject.toml Additions
+
+```toml
+# ADD to existing dependencies list in pyproject.toml:
+"librosa>=0.11.0",
+"soundfile>=0.12.1",
+"soxr>=0.3.2",
+"msgpack>=1.0.0",
+"sentence-transformers>=3.0.0",
+```
+
+**Install order matters for sentence-transformers (CPU-only PyTorch):**
+
+```bash
+# Step 1: Install CPU-only PyTorch to prevent CUDA wheel selection
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+# Step 2: Install remaining dependencies
+pip install -e ".[dev]"
+```
+
+Add to project documentation / Makefile to prevent accidental CUDA PyTorch install.
+
+---
+
+## CUDA 11.4 Compatibility Matrix (v2.0 Additions)
+
+| Component | CUDA Relevant? | K6000 Compatible? | Notes |
+|-----------|---------------|-------------------|-------|
+| librosa 0.11 | No | Yes | Pure CPU/NumPy |
+| soundfile 0.12 | No | Yes | libsndfile C extension, no CUDA |
+| soxr 0.3 | No | Yes | C resampler, no CUDA |
+| msgpack 1.0 | No | Yes | Pure Python |
+| sentence-transformers 3.x | Optional | Yes (CPU mode) | Force `device="cpu"` |
+| torch (CPU wheel) | No | Yes | Install CPU-only wheel explicitly |
+| Jamendo API (requests) | No | Yes | Already in stack |
+| FFmpeg aevalsrc | No | Yes | CPU audio filter |
+| SoX synth | No | Yes | CPU audio synthesis |
+| Mistral 7B (llama-server) | Yes (K6000) | Yes (pinned build 8156) | MUST use existing binary |
+
+**Critical constraint reiteration:** Do NOT upgrade llama-server for v2.0. The build 8156
+binary is the ONLY confirmed working build for K6000 + CUDA 11.4 + the mmproj patch. Modern
+llama.cpp prebuilt wheels target compute capability 6.1+ (Pascal+) and will NOT run on the
+K6000 (3.5 Kepler). Verify this before any `apt upgrade` or manual llama.cpp build.
+
+---
+
+## System Dependency: SoX
+
+SoX must be available on PATH for transition SFX synthesis.
+
+```bash
+# Ubuntu/Debian (likely already installed on this system)
+sudo apt-get install sox
+
+# Verify
+sox --version   # expected: SoX v14.4.2 or similar
+```
+
+SoX is a dependency-free audio tool (no Python package, no CUDA). If SoX is unavailable,
+fall back to FFmpeg-only synthesis (aevalsrc covers the exhale/rumble SFX types; whoosh
+sweeps can also be approximated with `aevalsrc='0.5*sin(2*PI*(80+1120*t/0.4)*t)'`).
+
+---
+
+## What NOT to Add
+
+| Library | Why Not |
+|---------|---------|
+| `ffmpeg-python` | Already rejected in v1.0 STACK.md. Still unmaintained. VO extraction uses existing subprocess pattern. |
+| `pydub` | Wraps FFmpeg with a Python buffer copy layer. No benefit over direct subprocess FFmpeg for segment extraction. |
+| `aubio` | C extension with inconsistent binary wheels. Half/double tempo errors on film audio. librosa is strictly better. |
+| `open_clip` | Requires PyTorch. PyTorch CUDA 11.4 / Kepler support requires building from source. Text-to-text zone matching via sentence-transformers is sufficient. |
+| `transformers` (standalone) | sentence-transformers bundles what is needed. Standalone transformers adds model-loading boilerplate. |
+| `torchaudio` | PyTorch dependency chain again. librosa handles all audio analysis needs. |
+| `yt-dlp` / `mutagen` | No music downloading from streaming platforms (licensing). Jamendo provides direct download URLs via its API. |
+| `SQLite` (new) | msgpack flat file is sufficient for inference cache. SQLite adds schema migration overhead with no query benefit. |
+| `pickle` | Executable on load, class-path sensitive, breaks on module refactor. msgpack is safer and similarly fast. |
+| `Ollama` | Explicitly out of scope per PROJECT.md constraints. |
+| PyTorch (CUDA wheel) | CUDA 11.4 Kepler not supported in PyTorch 2.x prebuilt wheels. CPU-only wheel must be installed explicitly. |
 
 ---
 
@@ -417,121 +777,43 @@ The `.cube` format is simple: a header line (`LUT_3D_SIZE 33`) followed by RGB t
 
 | Category | Recommended | Alternative | Why Not |
 |----------|-------------|-------------|---------|
-| CLI framework | Typer | Click | Typer wraps Click with less boilerplate; same ecosystem |
-| CLI framework | Typer | argparse | No rich help, no auto-completion, verbose for complex CLIs |
-| FFmpeg wrapper | subprocess (raw) | ffmpeg-python | Unmaintained, abstractions fight precise flag control |
-| FFmpeg wrapper | subprocess (raw) | moviepy | MoviePy loads frames into Python memory -- unacceptable for full films on 12GB VRAM |
-| Subtitle parser | pysubs2 | pysrt | SRT-only; CineCut needs ASS support |
-| Subtitle parser | pysubs2 | regex | Edge cases in ASS styling tags, BOM handling, multi-line entries |
-| JSON validation | Pydantic v2 | jsonschema | No Python object model; just validates, doesn't deserialize |
-| JSON validation | Pydantic v2 | dataclasses | No validation, no JSON serialization, poor error messages |
-| Scene detection | FFmpeg scene filter | PySceneDetect | Adds OpenCV dependency, loads frames into Python, extra memory pressure |
-| LLM interface | subprocess | llama-cpp-python | Python bindings add complexity, may have CUDA 11.4 build issues, project constraint is llama-cli |
-| LLM interface | subprocess | Ollama | Explicitly out of scope per project constraints |
+| BPM detection | librosa 0.11 | aubio | C extension binary issues; half/double tempo errors |
+| BPM detection | librosa 0.11 | essentia | Much heavier ML library; VRAM overhead; overkill for BPM only |
+| Music source | Jamendo API v3 | Free Music Archive | Less reliable API, smaller catalog, no self-service API key |
+| Music source | Jamendo API v3 | ccMixter | No REST API; community site not suitable for automation |
+| SFX synthesis | FFmpeg + SoX subprocess | pydub + librosa | pydub wraps FFmpeg anyway; adds buffer copy overhead |
+| SFX synthesis | FFmpeg + SoX subprocess | External SFX library | Out of scope per PROJECT.md — "no external SFX files" |
+| Zone matching | sentence-transformers CPU | open_clip | Requires PyTorch CUDA; K6000 Kepler incompatible with PyTorch 2.x |
+| Zone matching | sentence-transformers CPU | spacy similarity | spacy's word vectors are less accurate for semantic zone matching |
+| Text LLM model | Mistral 7B v0.3 Q4_K_M | LLaMA 3.1 8B | Slightly larger; newer architecture may require newer llama-server |
+| Text LLM model | Mistral 7B v0.3 Q4_K_M | LLaMA 2 7B | Mistral 7B outperforms LLaMA 2 7B on instruction-following at same quantization |
+| VO extraction | subprocess FFmpeg | ffmpeg-python | Already rejected; subprocess is established pattern in codebase |
+| VO extraction | subprocess FFmpeg | pydub | Extra buffer copy; no precision benefit |
+| Cache persistence | msgpack 1.0 | pickle | Executable on load; class-path sensitive; breaks on refactor |
+| Cache persistence | msgpack 1.0 | SQLite | Schema migration overhead; no query benefit for flat inference cache |
+| Cache persistence | msgpack 1.0 | JSON | Minor performance difference; Unicode escaping risk with subtitle text |
 
 ---
 
-## CUDA 11.4 Compatibility Matrix
-
-**Hard constraint:** Quadro K6000, Driver 470.256.02, CUDA 11.4.
-
-| Component | CUDA Relevant? | Compatible? | Notes |
-|-----------|---------------|-------------|-------|
-| Python 3.10+ | No | Yes | Pure language runtime |
-| Typer | No | Yes | Pure Python |
-| Pydantic v2 | No | Yes | Rust core, no CUDA |
-| pysubs2 | No | Yes | Pure Python |
-| Rich | No | Yes | Pure Python |
-| Ruff | No | Yes | Rust binary, no CUDA |
-| FFmpeg | GPU optional | Yes | FFmpeg NVENC/NVDEC supports Kepler (K6000). But CPU encoding is recommended for quality control. |
-| llama-cli | Yes (critical) | Yes | Pre-built on system. llama.cpp supports CUDA 11.4 with `LLAMA_CUDA=1`. Kepler architecture (sm_35) is supported in CUDA 11.4. |
-| PySceneDetect | Indirect (OpenCV) | Risky | OpenCV GPU builds may require newer CUDA. Avoid -- use FFmpeg scene filter instead. |
-| llama-cpp-python | Yes | Risky | Building Python bindings against CUDA 11.4 can have issues. Avoid -- use subprocess to llama-cli. |
-| colour-science | No | Yes | NumPy-based, no GPU dependency |
-
-**Key risk:** Any library that builds against CUDA directly (PyTorch, OpenCV-GPU, llama-cpp-python) may have CUDA 11.4 compatibility issues. The stack deliberately avoids all such libraries by keeping GPU operations in FFmpeg and llama-cli (both pre-configured on the system).
-
----
-
-## Installation
-
-```bash
-# Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Core dependencies
-pip install typer[all] pydantic pysubs2
-
-# Development dependencies
-pip install ruff pytest
-
-# Optional: LUT generation
-pip install numpy
-# pip install colour-science  # Only if programmatic LUT generation is needed
-```
-
-**pyproject.toml dependencies section:**
-
-```toml
-[project]
-name = "cinecut"
-version = "0.1.0"
-requires-python = ">=3.10"
-dependencies = [
-    "typer>=0.12,<1.0",
-    "rich>=13.0,<14.0",
-    "pydantic>=2.6,<3.0",
-    "pysubs2>=1.7,<2.0",
-]
-
-[project.optional-dependencies]
-dev = [
-    "ruff>=0.4",
-    "pytest>=8.0",
-]
-
-[project.scripts]
-cinecut = "cinecut.cli:app"
-```
-
-**System dependencies (must be on PATH):**
-- `ffmpeg` (6.x+)
-- `ffprobe` (comes with FFmpeg)
-- `llama-cli` (CUDA 11.4 build)
-
----
-
-## What NOT to Install
-
-| Library | Why Not |
-|---------|---------|
-| **ffmpeg-python** | Unmaintained, fights precise flag control, adds debugging indirection |
-| **moviepy** | Loads video frames into Python memory. A 2-hour film would consume all system memory. |
-| **PyTorch / transformers** | CUDA 11.4 compatibility issues. Project constraint is llama-cli, not Python-native inference. |
-| **Ollama** | Explicitly out of scope per project constraints |
-| **llama-cpp-python** | CUDA 11.4 build issues. Subprocess to llama-cli is simpler and already works. |
-| **OpenCV (cv2)** | Heavyweight dependency for features FFmpeg handles natively (frame extraction, scene detection). GPU build has CUDA version risks. |
-| **whisper / speech-to-text** | Out of scope -- user always provides subtitles |
-| **pysrt** | SRT-only; pysubs2 handles both SRT and ASS |
-| **dataclasses-json** | Pydantic v2 handles this better with native JSON support |
-
----
-
-## Sources & Confidence
+## Sources
 
 | Claim | Source | Confidence |
 |-------|--------|------------|
-| Typer wraps Click, supports type hints | Training data (well-established library) | MEDIUM -- verify current version on PyPI |
-| pysubs2 handles SRT + ASS | Training data (stable library since 2014) | MEDIUM -- verify current version on PyPI |
-| Pydantic v2 has Rust core, model_dump_json | Training data (major release mid-2023) | MEDIUM -- verify current API on PyPI |
-| ffmpeg-python is unmaintained | Training data (low activity as of 2024) | LOW -- verify on GitHub |
-| FFmpeg loudnorm filter syntax | Training data + FFmpeg docs (stable filter) | HIGH |
-| FFmpeg lut3d filter reads .cube | Training data + FFmpeg docs (stable filter) | HIGH |
-| FFmpeg scene detection filter | Training data + FFmpeg docs (stable filter) | HIGH |
-| llama.cpp supports CUDA 11.4 | Training data (Kepler sm_35 supported) | MEDIUM -- verify against llama.cpp releases |
-| LLaVA 7B Q4_K_M ~4.5GB VRAM | Training data (approximate, varies by context) | LOW -- measure on actual hardware |
-| Free LUT sources (URLs) | Training data | LOW -- URLs may have changed; verify before downloading |
-| .cube format is simple RGB triplets | Training data + widespread format spec | HIGH |
-
-**Overall stack confidence: MEDIUM.** Core patterns (subprocess for FFmpeg, Pydantic for JSON, pysubs2 for subtitles) are well-established and unlikely to have changed. Version numbers should be verified at install time. LUT sourcing URLs are lowest confidence.
+| librosa 0.11.0 is current stable version | [PyPI](https://pypi.org/project/librosa/) | HIGH |
+| librosa is CPU-only (no CUDA) | [librosa.org install docs](https://librosa.org/doc/0.11.0/install.html) | HIGH |
+| librosa.beat.beat_track() API signature | [librosa 0.11.0 docs](https://librosa.org/doc/main/generated/librosa.beat.beat_track.html) | HIGH |
+| librosa soundfile backend is default since v0.7 | [librosa ioformats docs](https://librosa.org/doc/0.11.0/ioformats.html) | HIGH |
+| aubio half/double tempo errors documented | Web search — multiple community reports | MEDIUM |
+| Jamendo API v3 active, free client_id, audiodownload field | [developer.jamendo.com/v3.0](https://developer.jamendo.com/v3.0) + web search | HIGH |
+| Jamendo 600K+ CC tracks | Web search — multiple sources consistent | MEDIUM |
+| SoX synth frequency sweep syntax `sine 80-1200` | [sox cheat sheet gist](https://gist.github.com/ideoforms/d64143e2bad16b18de6e97b91de494fd) + sox man page | HIGH |
+| FFmpeg aevalsrc sine expression with envelope | [ffmpeg aevalsrc examples](https://hhsprings.bitbucket.io/docs/programming/examples/ffmpeg/audio_sources/aevalsrc.html) | HIGH |
+| PyTorch 2.x dropped CUDA 11.4 / compute capability 3.5 | [PyTorch forum discussion](https://discuss.pytorch.org/t/which-pytorch-version-2-0-1-support-cuda-11-4/190446) + [llama-cpp-cffi PyPI](https://pypi.org/project/llama-cpp-cffi/) | HIGH |
+| sentence-transformers auto-detects GPU, falls back to CPU | [sbert.net docs](https://sbert.net/docs/package_reference/sentence_transformer/SentenceTransformer.html) | HIGH |
+| all-MiniLM-L6-v2 is 22 MB | [Hugging Face model card](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2) | HIGH |
+| Mistral 7B v0.3 Q4_K_M GGUF ~4.37 GB | [Hugging Face bartowski/Mistral-7B-Instruct-v0.3-GGUF](https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF) | HIGH |
+| Mistral 7B outperforms LLaMA 2 7B on MT-Bench | Web search — Mistral AI announcement + benchmarks | MEDIUM |
+| llama.cpp build 8156 K6000 compatibility | PROJECT.md — documented as working; mmproj patch noted | HIGH (system confirmed) |
+| Modern llama.cpp excludes compute capability 3.5 | [llama-cpp-cffi PyPI CUDA ARCHITECTURES list](https://pypi.org/project/llama-cpp-cffi/), [Ollama issue #1756](https://github.com/ollama/ollama/issues/1756) | HIGH |
+| msgpack 1.0 stable, ~30% smaller than JSON | [msgpack PyPI](https://pypi.org/project/msgpack/) + web search benchmarks | MEDIUM |
+| msgpack deserialization faster than pickle | Web search — 2024 Python serialization benchmark | MEDIUM |

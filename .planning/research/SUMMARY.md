@@ -1,216 +1,199 @@
 # Project Research Summary
 
-**Project:** CineCut AI — AI-driven video trailer generator
-**Domain:** Local LLM inference pipeline + FFmpeg video processing (Python CLI)
-**Researched:** 2026-02-26
-**Confidence:** MEDIUM (training data only; WebSearch and Context7 unavailable)
+**Project:** CineCut AI v2.0 — Structural & Sensory Overhaul
+**Domain:** AI-driven video trailer generation (local LLM inference, Python CLI)
+**Researched:** 2026-02-28
+**Confidence:** MEDIUM-HIGH
 
 ## Executive Summary
 
-CineCut AI is a Python CLI tool that generates professional-quality 2-minute trailers from feature films by combining LLaVA vision model inference with FFmpeg video processing. The project operates under a hard hardware constraint: an Nvidia Quadro K6000 (12GB VRAM, CUDA 11.4, Kepler architecture). Research confirms this constraint drives the entire stack — the key design principle is to keep all GPU operations inside pre-built system binaries (FFmpeg and llama-cli) and avoid any Python library that would need to compile against CUDA 11.4 directly. The recommended Python stack is minimal and conservative: Typer CLI, raw subprocess for FFmpeg/llama-cli, Pydantic v2 for the central manifest schema, and pysubs2 for subtitle parsing.
+CineCut AI v2.0 transforms the existing v1.0 highlight-reel pipeline into a dramatically structured, sonically layered trailer generator. The v1.0 pipeline (7 stages, LLaVA vision inference on K6000, OpenCV keyframes, FFmpeg conform) is a validated working baseline. v2.0 adds eight features that operate at two levels: structural intelligence (LLM-driven three-act zone assignment, non-linear clip ordering) and sensory texture (BPM-synced edit rhythm, music bed with auto-ducking, synthesized SFX transitions, protagonist VO narration). The recommended approach extends the existing pipeline to 9 stages using sequential server restarts for the two-model LLM pipeline, CPU-only audio libraries (librosa, sentence-transformers), and the established FFmpeg subprocess pattern throughout. No architectural rewrites are needed — v2.0 slots new modules into a proven structure with one manifest schema bump from "1.0" to "2.0".
 
-The pipeline is a strict three-tier sequential batch process: (1) Ingestion & proxy creation — FFmpeg transcodes a 420p proxy and extracts keyframes, pysubs2 parses subtitles; (2) Multimodal inference — llama-cli runs LLaVA sequentially per keyframe to generate scene descriptions, then a narrative analysis layer extracts 7 beat types and assembles `TRAILER_MANIFEST.json`; (3) High-bitrate conform — FFmpeg seeks into the original-resolution source, applies a genre-specific LUT, normalizes audio to LUFS targets, and concatenates segments. The JSON manifest is the critical decoupling artifact between inference and conform, enabling human review and re-renders without re-running inference.
+The single highest-risk constraint is the CUDA 11.4 / Kepler (K6000) hardware environment. The system's pinned llama-server build 8156 must not be upgraded — modern llama.cpp dropped compute capability 3.5 support, and upgrading risks breaking the mmproj binary patch that enables LLaVA inference. All new Python dependencies are CPU-only (librosa, sentence-transformers with an explicit CPU PyTorch wheel, msgpack) or existing system tools (FFmpeg, SoX). The sentence-transformers library requires installing `torch --index-url https://download.pytorch.org/whl/cpu` first to prevent accidental CUDA wheel selection, which would be incompatible with the K6000.
 
-The riskiest phase is LLM integration. Each llama-cli invocation reloads the model into VRAM (~4.5GB for LLaVA 7B Q4_K_M), making batch frame processing slow. Investigating `llama-server` (HTTP mode) for session reuse is a first-priority item in Phase 3. VRAM contention between llama-cli and FFmpeg hardware decoding is a critical pitfall that must be addressed at the architecture level from the start: FFmpeg must always run in CPU decode mode during analysis; GPU is reserved exclusively for inference. Timecode drift between the analysis proxy and original source is the second critical pitfall — VFR source files must be normalized to CFR at ingest and timecodes stored as PTS seconds, not frame indices.
+The primary operational risks are: (1) CUDA memory not releasing between sequential llama-server invocations — requires polling `nvidia-smi` before starting the second model server; (2) FFmpeg audio mixing complexity — four simultaneous audio layers (film audio, music bed, SFX, VO) require stem-level normalization and strict `amix normalize=0` discipline to preserve dynamic ducking intent; (3) BPM detection failure modes (0 BPM on silence, octave errors) require fallback logic keyed to vibe-default BPM values; and (4) music API reliability — the Jamendo integration must cache aggressively and degrade gracefully to no-music rather than aborting the pipeline. All of these have well-defined prevention strategies documented in the research.
 
 ## Key Findings
 
 ### Recommended Stack
 
-The stack is deliberately narrow to avoid CUDA 11.4 compatibility failures. Every library that would build against CUDA (PyTorch, OpenCV-GPU, llama-cpp-python) is explicitly excluded. The pipeline relies instead on the system-installed FFmpeg and llama-cli which are already configured for the K6000.
+The v2.0 stack adds five new Python libraries on top of the validated v1.0 stack (Python 3.10+, Typer, Rich, Pydantic, pysubs2, OpenCV headless, NumPy, requests, FFmpeg subprocess, llama-server HTTP). All new additions are CPU-only or existing system tools, eliminating VRAM contention risk from the new dependency surface.
 
-**Core technologies:**
-- **Python 3.10+** — runtime; required for `match/case`, `X | Y` type unions used throughout
-- **Typer (~0.12) + Rich (~13.0)** — CLI interface with auto-generated `--help`, progress bars, and rich terminal output; Typer wraps Click with less boilerplate
-- **subprocess (stdlib)** — FFmpeg and llama-cli invocation; raw subprocess chosen over `ffmpeg-python` (unmaintained) and MoviePy (loads frames into Python memory, catastrophic for 2hr films)
-- **Pydantic v2 (~2.6)** — `TRAILER_MANIFEST.json` schema, validation, and serialization; v2 Rust core gives fast validation with clear error messages; v1 is not acceptable
-- **pysubs2 (~1.7)** — SRT + ASS subtitle parsing; chosen over pysrt (SRT-only) and regex (edge cases in ASS styling)
-- **FFmpeg (6.x, system)** — proxy creation, scene detection, frame extraction, audio analysis, normalization, LUT application, final concatenation; ~8 well-defined command patterns
-- **llama-cli (system, CUDA 11.4 build)** — LLaVA vision inference; subprocess-only, no Python bindings
-- **pathlib + tempfile + json + logging (stdlib)** — path handling, temp directory lifecycle, manifest I/O, structured logging
-- **Ruff (~0.4) + pytest (~8.0)** — development tooling only
+**Core v2.0 additions:**
+- `librosa >= 0.11.0`: BPM detection and beat grid generation — CPU-only, seeded with vibe-default start BPM to avoid half/double tempo errors; handles OGG (unlike aubio)
+- `soundfile >= 0.12.1`: Audio I/O backend for librosa — required for WAV loading from FFmpeg-extracted audio tracks
+- `msgpack >= 1.0.0`: SceneDescription inference cache persistence — ~30% smaller than JSON, not executable on load (unlike pickle), schema-version-gated for safe invalidation
+- `sentence-transformers >= 3.0.0`: Scene-to-zone text embedding via `all-MiniLM-L6-v2` (22MB model, <2ms CPU inference per sentence) — text-to-text zone matching avoids PyTorch CUDA dependency entirely
+- `torch (CPU wheel only)`: Pulled in by sentence-transformers; must be installed first with `--index-url https://download.pytorch.org/whl/cpu` to prevent CUDA wheel selection
+- **Jamendo API v3** (via existing `requests`): 600K+ CC-licensed tracks, self-service client_id, `audiodownload` field, 18-vibe tag mapping built into the codebase
+- **FFmpeg `aevalsrc` + SoX `synth`** (existing system tools): Transition SFX synthesis — deterministic, cacheable, zero new dependencies
+- **Mistral 7B Instruct v0.3 Q4_K_M GGUF**: Text-only structural LLM (~4.37 GB VRAM) via existing llama-server build 8156 on port 8090, separate from LLaVA on port 8089
 
-**What NOT to install:** `ffmpeg-python`, `moviepy`, `PyTorch`, `OpenCV`, `llama-cpp-python`, `Ollama`, `pysrt`, `PySceneDetect` (OpenCV dependency with CUDA risk).
+**Critical non-negotiable constraint:** The `llama-server` binary must remain at build 8156. Modern llama.cpp prebuilt wheels target compute capability 6.1+ (Pascal+) and will not run on the K6000 (Kepler, cc 3.5). Do not `apt upgrade` or manually rebuild llama.cpp.
 
-See `.planning/research/STACK.md` for complete FFmpeg command reference, LLaMA CLI integration pattern, VRAM budget table, and pyproject.toml dependency spec.
+See `.planning/research/STACK.md` for complete integration patterns, pyproject.toml additions, and the full CUDA 11.4 compatibility matrix.
 
 ### Expected Features
 
-**Must have (table stakes):**
-- Three-act trailer structure (Setup / Escalation / Climax+Title) — without it, output is a random clip reel
-- Subtitle-driven narrative extraction (SRT + ASS) — dialogue is the densest narrative signal
-- Keyframe visual analysis via LLaVA — catches action sequences and visual reveals not in dialogue
-- 18 genre-specific vibe edit profiles — per-vibe pacing, transitions, LUFS targets, LUT color grading
-- `TRAILER_MANIFEST.json` output — the machine-readable edit decision list; enables human review and re-render
-- Frame-accurate seeking via FFmpeg `-ss` before `-i` — off-by-one-second cuts look amateur
-- LUFS audio normalization per vibe — clips from different scenes have wildly different levels
-- 420p proxy analysis + original-resolution conform — analyze cheap, render full quality
-- Transition types: hard cut, crossfade, fade-to-black, dip-to-black — core set for 18 vibes
-- Rich progress indication — pipeline runs 15-60 minutes; silent CLI = users kill the process
-- Actionable error messages for FFmpeg/llama-cli failures
+**Must have (v2.0 table stakes — milestone fails without these):**
+- SceneDescription persistence — eliminates 30-60 min re-inference on crash resume; no other v2.0 dependencies; build this first
+- Two-stage LLM pipeline + three-act zone tagging — all structural features depend on BEGIN_T / ESCALATION_T / CLIMAX_T anchors
+- Non-linear scene ordering — the core narrative claim of v2.0; clips sorted zone-first, then by emotional signal, not by source timestamp
+- Music bed per vibe — silence is a worse default than imperfect music; Jamendo API with permanent per-vibe local cache
 
-**Should have (differentiators):**
-- 7-category narrative beat framework (World Establishment, Character Introduction, Inciting Incident, Escalation Beats, Relationship Beats, Climax Peaks, Money Shots) — expands the 3-beat skeleton to fill Act 2
-- Money shot quality scoring (8-signal system: motion, contrast, saturation, uniqueness, face presence, subtitle emotional weight, subtitle silence, temporal position)
-- `--review` manifest editing workflow — human-in-the-loop without re-running inference
-- Pacing curve (accelerating cut lengths from Act 1 to Act 3 montage) per vibe profile
-- Beat reasoning field per clip in manifest — enables meaningful human review
-- Hybrid keyframe extraction (subtitle-midpoint + scene-change + interval fallback)
-- Audio ducking for dialogue clips vs. visual-only clips
+**Should have (differentiators that require table stakes to be stable first):**
+- BPM grid / beat map — requires music bed to exist; snaps clip start points to beat grid within ±1 beat tolerance
+- Dynamic music ducking — music auto-attenuates during VO/dialogue via FFmpeg `sidechaincompress`
+- Silence / breathing room segments — 3–5s deliberate pauses at act 2→3 boundary ("stopdown" technique per Derek Lieu)
+- SFX transitions (synthesized) — whoosh/sweep tones at cuts via FFmpeg `aevalsrc` + SoX `synth`; pre-rendered to a single WAV per run
 
-**Defer to v2+:**
-- Music generation/selection (legal minefield, separate domain)
-- Voiceover/narration TTS (quality risk, separate model)
-- Real-time preview / timeline UI (contradicts CLI-first design, K6000 cannot infer + render concurrently)
-- Automatic subtitle generation/STT (user always provides subtitles)
-- Multi-language subtitle support (multiplies NLP complexity)
-- Social media format variants / aspect ratio reframing (requires subject detection)
-- Custom transition effects beyond the 4 core types (tacky if done poorly)
-- Web/GUI interface (out of scope per constraints)
+**Ship last (high complexity, requires earlier features to be stable):**
+- Hero VO narration — depends on Stage 1 protagonist detection output; EQ tuning is iterative; background score bleeds into extracted audio (inherent limitation; mitigate with lower VO volume and placement during music lulls)
 
-See `.planning/research/FEATURES.md` for the complete 3-act timing template, all 18 vibe edit profiles, money shot scoring weights, and emotional keyword dictionaries.
+**Explicitly deferred to v2.1+:**
+- VO line quality scoring beyond dialogue-line-count heuristic
+- Per-scene SFX intensity calibration (start with fixed intensity tiers per beat type)
+- Music archive management UI (auto-download on first use is sufficient for v2.0)
+
+**Anti-features — do not build:**
+- External SFX file library (license burden; synthesize all SFX instead)
+- Cloud TTS / hired VO narrator (violates local-only constraint; use protagonist's actual film audio)
+- Speaker diarization via pyannote.audio (requires PyTorch CUDA 12, incompatible with CUDA 11.4 stack)
+- Per-frame BPM snap (over-engineering; snap clip START points only, within ±1 beat)
+- Variable-tempo BPM time-stretching (rubato artifacts; cut/loop music to fit instead)
+
+See `.planning/research/FEATURES.md` for full feature dependency graph and MVP priority ranking.
 
 ### Architecture Approach
 
-CineCut uses a stage-based batch pipeline with checkpointing as its core execution model. The three-tier structure maps directly to data dependencies: proxy/subtitle artifacts must exist before inference can start, and a validated manifest must exist before conform can run. Each stage writes a checkpoint on completion; the orchestrator resumes from the last completed stage on restart, making a 45-minute pipeline survivable. The `TRAILER_MANIFEST.json` is the explicit decoupling contract between the AI inference tier and the deterministic FFmpeg conform tier.
+The v2.0 architecture extends the existing 7-stage pipeline to 9 stages by inserting two new stages (Stage 3: structural analysis, Stage 6: scene-to-zone matching) and modifying four existing stages (Stage 5 adds inference caching, Stage 7 adds zone-first ordering, Stage 8 adds BPM/music/VO, Stage 9 adds a three-pass audio mix). The manifest schema bumps from "1.0" to "2.0" with new sub-models (StructuralAnchors, MusicBed, BpmGrid, SfxConfig, VoClip) and one new field on ClipEntry (`narrative_zone`). All new components follow established v1.0 patterns: atomic file writes via tempfile + os.replace, GPU_LOCK context managers, Pydantic validation with schema version gating, and FFmpeg subprocess invocations.
 
-**Major components:**
-1. **`pipeline/orchestrator.py`** — stage sequencing, checkpoint management, `--review` pause point; the single "main loop"
-2. **`ingest/`** — proxy transcode, keyframe extraction, subtitle parsing; produces the analysis corpus
-3. **`inference/`** — llama-cli subprocess management, sequential VRAM-aware frame processing, narrative beat extraction, manifest assembly
-4. **`conform/`** — high-bitrate segment extraction from original source, audio normalization, LUT application, final concatenation
-5. **`ffmpeg/`** — fluent builder pattern for command construction + subprocess runner; every FFmpeg call goes through this layer
-6. **`models/`** — all Pydantic schemas (manifest, scene, timeline, vibe profile); the typed contracts between components
-7. **`vibes/`** — 18 YAML config files loaded into Pydantic VibeProfile models; editable without code changes
+**New modules to create:**
+1. `inference/text_engine.py` — TextEngine context manager (mirrors LlavaEngine pattern), serves Mistral 7B on port 8090, holds GPU_LOCK for its entire lifetime
+2. `inference/cache.py` — SceneDescription save/load/build_results_from_cache with content hash invalidation (mtime + size)
+3. `narrative/zone_matching.py` — assigns clips to narrative zones using sentence-transformers cosine similarity; forced `device="cpu"`
+4. `assembly/bpm.py` + `assembly/music.py` — BPM detection (librosa) and Jamendo music resolution with permanent per-vibe cache
+5. `conform/audio_mix.py` + `conform/sfx.py` + `conform/vo_extract.py` — three-layer audio mixing pass added as Pass 3 + Pass 4 after existing clip extraction and concatenation
 
 **Key patterns to follow:**
-- Fluent FFmpeg builder (never string concatenation — injection/quoting bugs guaranteed)
-- Pydantic v2 for all serializable data crossing stage or file I/O boundaries
-- VRAM-aware sequential inference (one llama-cli process at a time, never concurrent)
-- Deterministic work directory naming (hash of source path + mtime) for resumability
-- Atomic manifest writes (`os.replace()` from temp file) to prevent partial corruption
-- Rich progress bars threaded through pipeline from Phase 1 (not bolted on later)
+- Sequential server restarts (TextEngine then LlavaEngine) with nvidia-smi VRAM polling between swaps — never use router mode (post-build-8156 feature, untested with K6000)
+- Two-pass then audio-mix conform sequence: extract clips → concat → audio mix (not a single mega-filtergraph; mega-filtergraphs are fragile and hard to debug)
+- Pre-render SFX to a single WAV before mixing (avoids per-beat filtergraph node explosion at 25-35 nodes for action trailers)
+- Zone ordering runs first; BPM beat snapping runs second (narrative structure takes precedence over rhythm)
 
-See `.planning/research/ARCHITECTURE.md` for complete module tree, data flow diagram, full manifest JSON schema example, YAML vibe profile format, and temp file lifecycle rules.
+See `.planning/research/ARCHITECTURE.md` for the complete 9-stage data flow diagram, all new module interfaces, manifest schema additions, and 5-phase build order with testable deliverables per phase.
 
 ### Critical Pitfalls
 
-1. **VRAM contention between llama-cli and FFmpeg GPU decoding** — llama.cpp pre-allocates 8-10GB at startup; FFmpeg NVDEC/NVENC silently claims additional VRAM. Prevention: force FFmpeg to use CPU decode (`-hwaccel none`) for all analysis operations; pipeline must be strictly sequential with no overlap between FFmpeg operations and llama-cli. Add `nvidia-smi` VRAM check before inference. Phase: must be addressed in Phase 1 architecture.
+1. **CUDA memory lingers between model swaps (V2-1)** — After stopping the first llama-server, poll `nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits` until reported VRAM drops below 500MB or 15s timeout. Add a minimum 3s hard floor even if polling is skipped. If the second server starts in under 3s, emit a warning — the model likely loaded to CPU (50-200x slower inference, no error message).
 
-2. **CUDA 11.4 / Kepler compatibility wall** — pre-built Python CUDA library wheels almost universally target CUDA 12+ / sm_70+. `CUDA error: no kernel image is available` is the failure mode. Prevention: use only system-installed FFmpeg and llama-cli; compile llama.cpp from source with `CMAKE_CUDA_ARCHITECTURES=35` if needed; reject all Python CUDA libraries (PyTorch, OpenCV-GPU, llama-cpp-python). Validate llama-cli runs LLaVA inference before any other work (Phase 0 blocker).
+2. **FFmpeg `amix normalize=1` destroys ducking ratios (V2-2)** — Always use `amix normalize=0`. Normalize each stem independently before mixing (never the final output — loudnorm treats ducking as content to normalize away). Resample all audio to 48000Hz before any mixing filtergraph. Mix audio only after final video concatenation, not per-clip.
 
-3. **Timecode drift between 420p proxy and original source** — VFR source files shift timing during CFR proxy creation; different GOP structures cause seek imprecision. Prevention: force CFR at proxy creation (`-vsync cfr`), store timecodes as PTS seconds (not frame indices), validate proxy-source alignment with spot-check thumbnails. Phase 1 proxy design decision that propagates to Phase 4 conform accuracy.
+3. **Non-linear reordering causes audio bleed and dialogue non-sequiturs (V2-3)** — Apply PTS reset (`setpts=PTS-STARTPTS`, `asetpts=PTS-STARTPTS`) plus 0.1s audio fade-in/out on every extracted clip. Deprioritize pronoun-leading dialogue ("I told you", "He said") for BEGIN zone — it reads as incoherent without prior context.
 
-4. **llama-cli subprocess silent failures and zombie processes** — hangs on certain inputs, crashes without detection, zombie processes holding VRAM. Prevention: always use `subprocess.run()` with explicit `timeout=120`, validate output structure before proceeding, implement skip-with-warning for failed frames, never use `subprocess.Popen` without explicit cleanup. Phase 2 inference design.
+4. **BPM detection returns 0, half, or double tempo (V2-4)** — Guard against 0 BPM with a vibe-default fallback. Clamp to vibe-expected range (e.g., Action: 120-160 BPM, Drama: 60-90 BPM); halve or double the detected value if outside bounds. If beat array has fewer than 8 beats in the first 30s, classify as non-beat-tracked and fall back to fixed-interval cuts.
 
-5. **Audio/video sync drift in concat assembly** — AAC frame boundary misalignment accumulates across clips when using the concat demuxer with stream copy. Prevention: re-encode both audio and video (never `-c copy`) in the final conform; use the concat filter (not demuxer); normalize audio sample rate to 48000Hz per clip; verify final output audio/video duration match within 20ms. Phase 4 conform design.
-
-Additional critical pitfalls: FFmpeg command injection via string concatenation (use builder + list args, never `shell=True`); LUT color space mismatch (design LUTs for Rec.709 input, apply at reduced intensity); subtitle encoding and malformed file edge cases (use `chardet` for encoding detection + pysubs2); keyframe disk space exhaustion (streaming extraction + temp cleanup handlers); LLaVA hallucination and inconsistent output format (minimal prompts, fixed output schema, temp=0, post-process with regex, pre-filter dark frames).
+5. **Music API downtime or OAuth expiry aborts pipeline (V2-5)** — Cache every downloaded track permanently per vibe in `~/.cinecut/music/`. Treat music as best-effort: any download failure (network error, 401, 404, 429) logs a warning and continues without a music bed. Never abort the pipeline for a missing music track.
 
 ## Implications for Roadmap
 
-Based on research, suggested phase structure:
+The ARCHITECTURE.md research derives a clean 5-phase build order from data dependencies. Each phase is testable in isolation and unblocked by the previous phase. The ordering is strongly recommended.
 
-### Phase 1: Foundation — FFmpeg Pipeline, CLI Shell, and Environment Validation
+### Phase 1: Inference Persistence (SceneDescription Cache)
 
-**Rationale:** Lowest risk, highest confidence. FFmpeg patterns are well-documented, no GPU dependencies, forms the substrate everything else runs on. CUDA validation must happen before any inference work begins.
-**Delivers:** Working proxy creation, keyframe extraction, subtitle parsing, CLI entry point, progress infrastructure, FFmpeg builder/runner layer, VRAM pre-flight check
-**Addresses features:** Frame-accurate seeking, progress indication, actionable error messages, SRT+ASS support, proxy tier of three-tier pipeline
-**Avoids pitfalls:** Timecode drift (force CFR at proxy creation), FFmpeg injection (builder from day one), FFmpeg version check (startup validation), CLI progress (baked in, not bolted on later)
-**Research flag:** Standard patterns. Skip research-phase. FFmpeg subprocess is well-documented; pyproject setup is standard Python.
+**Rationale:** Zero external dependencies; fixes the most painful v1.0 gap immediately (crash recovery without 30-60 min re-inference); foundation that all other v2.0 phases depend on for resume reliability. Can be built and tested in complete isolation from the structural LLM work.
+**Delivers:** `inference/cache.py` with save/load/build_results_from_cache; Stage 5 checkpoint guard in cli.py; schema-version-gated cache keyed to source file mtime + size (not just path)
+**Addresses:** Table stakes feature "SceneDescription persistence"; V2-7 (stale cache prevention); eliminates the most common v1.0 pain point
+**Avoids:** Temptation to use pickle (executable on load, class-path sensitive) or SQLite (schema migration overhead with no query benefit for a flat inference cache)
 
-### Phase 2: Manifest Schema, Vibe System, and Conform
+### Phase 2: Structural Analysis (Text LLM, Stage 3)
 
-**Rationale:** Define the contract (manifest schema) before building the AI that produces it. The conform step is deterministic FFmpeg work — once the manifest schema is stable and a valid manifest exists (even hand-crafted), this step can be built and tested independently of inference.
-**Delivers:** Complete Pydantic manifest schema with validation, all 18 vibe YAML profiles with edit/audio/visual/narrative parameters, LUT file strategy (programmatic `.cube` generation or sourced), segment extraction from original source, LUFS audio normalization per vibe, LUT application, final MP4 concatenation, `--review` pause and re-run workflow
-**Addresses features:** JSON manifest output, 18 vibe profiles, LUT color grading, audio normalization, `--review` workflow, transition types, title card timing
-**Avoids pitfalls:** A/V sync drift (concat filter + re-encode from the start), LUT color space mismatch (Rec.709-input LUTs, blend opacity), manifest schema integrity (Pydantic validation at every read boundary, atomic writes)
-**Research flag:** LUT sourcing needs investigation — programmatic `.cube` generation via NumPy vs. sourcing free cinematic LUTs. The STACK.md provides both approaches; a prototype comparison is needed.
+**Rationale:** Provides BEGIN_T / ESCALATION_T / CLIMAX_T anchors that all downstream structural features depend on. TextEngine context manager mirrors the existing LlavaEngine — a proven, low-risk pattern. Must exist before zone matching. Provides a `--text-model` fallback heuristic (5%/45%/80% of runtime) so later phases are testable without a downloaded GGUF.
+**Delivers:** `inference/text_engine.py` (TextEngine), `inference/structural.py` (analyze_structure + StructuralAnchors), manifest schema 2.0 bump, `--text-model` CLI flag with heuristic fallback, subtitle chunking at 50-100 events per LLM call
+**Uses:** Mistral 7B Instruct v0.3 Q4_K_M, llama-server build 8156 on port 8090
+**Avoids:** V2-1 (nvidia-smi VRAM polling between server swaps, built here); V2-9 (context window overflow via chunking strategy)
 
-### Phase 3: LLM Integration and Narrative Analysis
+### Phase 3: Zone Matching + Non-Linear Ordering (Stage 6 + Stage 7)
 
-**Rationale:** The riskiest phase. Deferred until the FFmpeg pipeline produces real proxy + keyframe artifacts to test against. LLaVA integration, prompt engineering, and narrative beat extraction are the most uncertain components.
-**Delivers:** llama-cli subprocess wrapper with timeouts and retry logic, VRAM-aware sequential batch processing, LLaVA scene description output with structured parsing, 7-beat narrative arc extraction algorithm, money shot scoring (8-signal system), real manifest generation from actual film inference
-**Addresses features:** Keyframe visual analysis, narrative beat detection, money shot quality scoring, subtitle emotional keyword extraction, beat reasoning in manifest
-**Avoids pitfalls:** VRAM contention (strictly sequential, CPU FFmpeg during inference), llama-cli zombie processes (timeout + cleanup wrapper from day one), LLaVA hallucination (minimal prompts, fixed output schema, dark frame pre-filtering), CUDA 11.4 wall (validated in Phase 0 before this phase starts)
-**Research flag:** NEEDS deeper research. Key questions: (1) Is `llama-server` available in the system build? HTTP session reuse vs. per-frame subprocess is a 5-10x performance difference. (2) Which specific LLaVA GGUF model fits within VRAM budget with headroom? 7B Q4_K_M is the recommendation but needs hardware validation. (3) What prompt structure produces reliable structured output from this specific model? Requires experimentation.
+**Rationale:** Depends on StructuralAnchors from Phase 2 (or heuristic fallback). Changes the core clip ordering semantics — the primary narrative claim of v2.0. Must be stable before audio features are layered on top, as audio decisions (where to duck, where to place VO) depend on zone assignments.
+**Delivers:** `narrative/zone_matching.py` (sentence-transformers cosine similarity, CPU-only); NarrativeZone enum; `narrative_zone` on ClipEntry; zone-first + emotional-signal ordering in narrative/generator.py; Stage 6 checkpoint
+**Implements:** CPU-only sentence-transformers (all-MiniLM-L6-v2, 22MB) with forced `device="cpu"` — install CPU PyTorch wheel first
+**Avoids:** V2-3 (PTS reset + 0.1s audio fades on every extracted clip; pronoun-leading dialogue filtering)
 
-### Phase 4: Narrative Assembly and End-to-End Integration
+### Phase 4: BPM Grid + Music Bed (Stage 8 sub-features)
 
-**Rationale:** Wire all three tiers together through the orchestrator with full checkpointing. The trailer assembly algorithm — selecting and sequencing clips from narrative beats according to vibe profile parameters — is a distinct algorithm that sits above individual component pieces.
-**Delivers:** Three-act trailer structure assembly algorithm (timing templates per vibe), complete pipeline orchestrator with checkpoint state machine, `--review` manifest editing + re-conform workflow, end-to-end test on a real 2-hour film, performance benchmarks
-**Addresses features:** Three-act structure, pacing curve, genre-aware edit pacing, beat emphasis per vibe, button/stinger timing, resumable pipeline
-**Avoids pitfalls:** Monolithic pipeline (stage-based orchestrator enforced from Phase 1), memory leaks (streaming processing, incremental disk writes)
-**Research flag:** Trailer assembly algorithm (clip selection from beat taxonomy, pacing curve implementation) has sparse direct documentation. May benefit from a focused research pass on trailer editing theory.
+**Rationale:** Pure addition to Stage 8 with no inference or narrative stage changes. Requires librosa as the only genuinely new dependency. Music bed must exist before ducking and SFX features can be built in Phase 5.
+**Delivers:** `assembly/bpm.py` (detect_bpm, beat grid, snap_clips_to_beats); `assembly/music.py` (Jamendo API fetch with permanent per-vibe cache at `~/.cinecut/music/`); BpmGrid and MusicBed manifest models; `music_track_filename` on all 18 VibeProfiles
+**Avoids:** V2-4 (0 BPM guard, octave correction, vibe-range clamping — all built here); V2-5 (cache-first, graceful degradation on any API failure); V2-12 (crossfade loop for short tracks under 90s)
 
-### Phase 5: Polish, Edge Cases, and Production Readiness
+### Phase 5: SFX + VO + Audio Mix (Stage 9 conform changes)
 
-**Rationale:** Core loop must work end-to-end before addressing edge cases. This phase hardens the tool for real-world film inputs.
-**Delivers:** Comprehensive error handling and user-facing messages, adversarial filename handling, subtitle encoding edge case hardening (`chardet` integration), `cinecut clean` subcommand, scene detection threshold configurability (`--scene-threshold`), FFmpeg version startup check, disk space pre-flight, documentation
-**Addresses features:** Actionable error messages, anti-features explicitly gated (no cloud, no STT, etc.)
-**Avoids pitfalls:** Subtitle parsing edge cases (encoding, overlapping cues, BOM, malformed files), disk space exhaustion (streaming + pre-flight), scene detection sensitivity (configurable threshold), FFmpeg version incompatibilities (startup validation)
-**Research flag:** Standard patterns. Skip research-phase.
+**Rationale:** Depends on BpmGrid (cut times, from Phase 4) and music track path. The most complex phase — the FFmpeg filtergraph must be validated end-to-end. Correct stem-level normalization and `amix normalize=0` discipline are day-one architecture decisions within this phase.
+**Delivers:** `conform/sfx.py` (pre-rendered SFX WAV at cut positions, explicit -ar 48000 on every synthesis); `conform/vo_extract.py` (output-seeking extraction, always re-encode to AAC 48000Hz stereo, minimum 0.8s duration); `conform/audio_mix.py` (film audio + music + SFX + VO, `amix normalize=0`, stem-level loudnorm); updated conform/pipeline.py with Pass 3 + Pass 4
+**Avoids:** V2-2 (amix normalize=0, stem-level loudnorm, 48000Hz resampling throughout); V2-6 (VO background bleed accepted, mitigated with conservative volume and music-lull placement; minimum 0.8s extraction; output seeking for frame accuracy); V2-8 (explicit -ar 48000 in every synthesis command; write SFX to temp file, never pipe FFmpeg to SoX); V2-10 (silence segment frame-boundary rounding to prevent A/V drift accumulation); V2-13 (path escaping extended to all audio filter graph arguments)
 
 ### Phase Ordering Rationale
 
-- FFmpeg and manifest contract first because they have zero risk and zero ambiguity — building on uncertain ground (LLM) before the plumbing works is a trap
-- Manifest schema before inference because the manifest is the producer/consumer contract; defining it late forces rework of both sides
-- Conform built in Phase 2 (not Phase 4) because it is deterministic FFmpeg work that can be tested with hand-crafted manifests; deferring it conflates deterministic work with uncertain AI work
-- LLM integration is isolated in Phase 3 because it is the highest-risk phase; isolation means failures here cannot corrupt the pipeline foundation
-- Assembly algorithm in Phase 4 (after components exist) because it requires real inference output to validate beat selection logic
-- Polish deferred to Phase 5 because edge cases cannot be enumerated without first encountering real-world inputs
+- **Persistence first:** Phase 1 has zero external dependencies and high ROI for immediate pain relief; all other phases benefit from crash-safe resume
+- **Structure before audio:** Zone assignments (Phases 2-3) determine which clips appear and where; audio features (Phases 4-5) dress those decisions rather than override them
+- **Music before mixing:** SFX and VO (Phase 5) need a music bed to duck against and a BPM grid to time transitions — Phase 4 must deliver both first
+- **CUDA isolation maintained throughout:** TextEngine (Phase 2) and LlavaEngine (Phase 3) never run concurrently; GPU_LOCK covers the inter-stage gap; nvidia-smi polling built in Phase 2 before any model swap occurs in production
+- **Testable deliverable per phase:** Phase 1 = improved v1.0 output with resume; Phase 3 = zone-ordered output; Phase 4 = music-backed output; Phase 5 = full sensory-layer output
 
 ### Research Flags
 
 Phases needing deeper research during planning:
-- **Phase 3 (LLM Integration):** llama-server vs. llama-cli subprocess performance on this specific hardware; LLaVA GGUF model selection for 12GB VRAM; prompt engineering for structured output from 7B model
-- **Phase 2 (LUT Strategy):** Programmatic `.cube` generation quality vs. curated free LUTs; which vibes need custom vs. adapted LUTs
+- **Phase 5 (Audio Mix):** FFmpeg filtergraph parameter tuning — duck_ratio, sidechaincompress attack/release, and VO-to-music volume ratios are specified as ranges but require empirical validation against real film audio. Flag these as implementation-time tuning items.
+- **Phase 2 (Structural LLM):** Mistral 7B v0.3 prompt engineering for reliable JSON zone-boundary output needs validation against real subtitle corpora of varying film lengths and pacing before the chunking strategy (50-100 events/call) can be considered confirmed.
 
-Phases with standard patterns (skip research-phase):
-- **Phase 1 (FFmpeg Pipeline):** Well-documented FFmpeg subprocess patterns; command reference in STACK.md
-- **Phase 5 (Polish):** Standard Python CLI hardening; no novel technical problems
+Phases with standard patterns (safe to skip research-phase):
+- **Phase 1 (Persistence):** Atomic file I/O with schema versioning is an established pattern; checkpoint.py is a direct reference implementation
+- **Phase 3 (Zone Matching):** sentence-transformers all-MiniLM-L6-v2 is well-documented; cosine similarity zone assignment is a standard embedding application
+- **Phase 4 (BPM Grid):** librosa beat_track API is stable; the edge case handling (0 BPM guard, octave correction) is fully specified in PITFALLS.md with no implementation ambiguity
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | MEDIUM | Core library choices (Typer, Pydantic v2, pysubs2, subprocess) are well-established and stable. Version numbers not PyPI-verified. llama.cpp CUDA 11.4 Kepler support needs hardware validation. |
-| Features | MEDIUM | Feature landscape derived from film editing conventions and trailer production theory; 18 vibe profiles are opinionated starting points, not validated against actual trailers. Money shot scoring weights are estimates. |
-| Architecture | MEDIUM-HIGH | Three-tier pipeline + stage checkpointing are textbook batch processing patterns. Module structure is design-driven. llama-cli integration specifics (flag names, mmproj path, multimodal workflow) need verification against installed version. |
-| Pitfalls | MEDIUM | VRAM contention, CUDA compatibility, and A/V sync drift are well-documented failure modes. LLaVA prompt engineering pitfalls drawn from VLM literature. Timecode drift from real-world VFR sources is empirically documented. |
+| Stack | HIGH | All libraries verified against PyPI and official docs; CUDA 11.4 compatibility matrix fully documented; CPU PyTorch install order constraint verified against PyTorch forum discussion |
+| Features | MEDIUM-HIGH | Table stakes and ordering confirmed by TRAILDREAMS 2025 peer-reviewed research and professional trailer editor sources (Derek Lieu); audio treatment parameters from multiple production sources |
+| Architecture | HIGH | Stage ordering derived directly from codebase reading; manifest schema additions are straightforward Pydantic; TextEngine pattern mirrors proven LlavaEngine |
+| Pitfalls | MEDIUM-HIGH | FFmpeg and LLM pitfalls verified via official docs and WebSearch; CUDA memory deallocation timing is training-data confidence only (not independently verifiable without hardware access) |
 
-**Overall confidence:** MEDIUM
+**Overall confidence:** MEDIUM-HIGH
 
 ### Gaps to Address
 
-- **llama-server availability:** Is `llama-server` present in the system's llama.cpp build? This is a Phase 3 first-day investigation. If unavailable, per-frame subprocess is the only option and pipeline timing estimates must account for repeated model loading (~30-60s per cold start).
-- **LLaVA model selection:** Which GGUF model (7B vs 13B, Q4_K_M vs Q5_K_M) fits within the 12GB VRAM budget alongside FFmpeg's working memory? Needs empirical measurement on the K6000. STACK.md estimates LLaVA 7B Q4_K_M at ~4.5GB but this is approximate.
-- **LUT quality validation:** Programmatic `.cube` generation via NumPy produces correct transforms mathematically but visual quality vs. professionally designed LUTs is unknown. Needs visual comparison before Phase 2 completion.
-- **FFmpeg NVENC on K6000:** Does the system FFmpeg include NVENC support for Kepler (sm_35)? GPU encoding for final conform could reduce Phase 4 render time significantly but may not be available or may conflict with VRAM budget.
-- **pysubs2/Typer/Pydantic exact versions:** Web search was unavailable. All version pins in STACK.md should be verified against PyPI before first `pip install`.
-- **LLaVA context window with image tokens:** LLaVA 7B on a 2048-token context with CLIP-ViT-L image encoding (~576 tokens) leaves ~1472 tokens for prompt + output. Prompts must be validated to fit within this budget. Larger context (`-c 4096`) may be available but increases VRAM pressure.
+- **FFmpeg audio filtergraph parameter tuning:** duck_ratio, sidechaincompress attack/release ms, and VO-to-music volume ratios are specified as ranges from production sources but will require empirical iteration against real film audio. Not a planning blocker — handle as implementation-time validation.
+- **Mistral 7B v0.3 zone-tagging prompt reliability:** The structural analysis prompt is designed in STACK.md but untested against real subtitle corpora on the actual hardware. Validate the chunking strategy (50-100 events/call) and JSON output reliability before building Phase 3 downstream features on top of it.
+- **Jamendo API client_id registration:** Requires a free developer account at developer.jamendo.com before Phase 4 integration testing can run end-to-end. Not a code blocker but must be completed before Phase 4 test execution.
+- **SoX system availability:** Verify with `sox --version` before Phase 5 begins. If SoX is absent, FFmpeg-only synthesis fallback is fully documented in STACK.md for all SFX types.
+- **VO background score bleed:** Accepted as an inherent limitation of single-channel audio extraction. Perceptual acceptability of the mitigation (lower VO volume, placement during music lulls) will only be known after end-to-end testing with real film audio.
 
 ## Sources
 
-### Primary (HIGH confidence — well-established patterns)
-- FFmpeg documentation — `loudnorm` filter, `lut3d` filter, scene detection filter, `-ss` seeking behavior, concat demuxer vs filter, NVDEC/NVENC flags
-- Python stdlib — subprocess, pathlib, tempfile, json, logging behavior
-- Pydantic v2 documentation — BaseModel, field_validator, model_dump_json API (stable since mid-2023)
+### Primary (HIGH confidence)
+- `/home/adamh/ai-video-trailer/src/cinecut/` — existing codebase, read directly for architecture baseline
+- [librosa 0.11.0 official docs](https://librosa.org/doc/main/generated/librosa.beat.beat_track.html) — beat_track API, edge cases, trim=False behavior
+- [Jamendo API v3](https://developer.jamendo.com/v3.0) — track search, audiodownload field, CC licensing, zip_allowed filter
+- [sentence-transformers sbert.net](https://sbert.net/docs/package_reference/sentence_transformer/SentenceTransformer.html) — CPU fallback behavior, all-MiniLM-L6-v2 model card
+- [Hugging Face bartowski/Mistral-7B-Instruct-v0.3-GGUF](https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF) — VRAM size confirmation (~4.37 GB Q4_K_M)
+- [FFmpeg Filters Documentation](https://ffmpeg.org/ffmpeg-filters.html) — sidechaincompress, amix, adelay, aevalsrc, afade, loudnorm
+- [PyTorch CUDA 11.4 compatibility](https://discuss.pytorch.org/t/which-pytorch-version-2-0-1-support-cuda-11-4/190446) — confirms CUDA 11.4 / Kepler dropped from PyTorch 2.x prebuilt wheels
 
-### Secondary (MEDIUM confidence — training data, widely documented)
-- Typer/Rich library API (well-established CLI libraries, stable API)
-- pysubs2 subtitle parsing behavior (library active since 2014, SRT+ASS handling well-documented)
-- PySceneDetect scene detection (referenced in ARCHITECTURE.md as optional; STACK.md recommends FFmpeg-native approach instead)
-- Film trailer editing conventions (three-act structure, cut timing by genre, trailer production literature)
-- llama.cpp CUDA 11.4 / sm_35 Kepler support status
-- LLaVA architecture — image token count, context window constraints, VLM hallucination behavior
+### Secondary (MEDIUM confidence)
+- TRAILDREAMS (2025) peer-reviewed research — LLM-driven trailer generation confirming two-stage zone classification approach
+- Derek Lieu professional trailer editor blog — three-act structure, stopdown silence technique, sound design parameters
+- [llama.cpp Issue #13027](https://github.com/ggml-org/llama.cpp/issues/13027) — router mode compatibility with CUDA 11.4 unverified, justifying sequential server restarts
+- Adobe Audition, iZotope production audio sources — ducking parameter ranges (-12 to -18dB, 100ms attack, 300ms release)
+- [SoX synth cheat sheet](https://gist.github.com/ideoforms/d64143e2bad16b18de6e97b91de494fd) + sox man page — frequency sweep synthesis syntax
+- [Freesound API documentation](https://freesound.org/docs/api/overview.html) — rate limits and OAuth2 expiry (referenced in PITFALLS.md; Jamendo chosen over Freesound)
 
-### Tertiary (LOW confidence — needs validation)
-- LLaVA 7B Q4_K_M VRAM consumption estimate (~4.5GB) — approximate, measure on hardware
-- Free LUT source URLs (lutify.me, rocketstock.com) — verify links are active before downloading
-- Money shot scoring signal weights — opinionated estimates, require empirical calibration against real trailer output
-- Per-vibe LUFS targets and cut duration parameters — based on genre conventions, require subjective validation
+### Tertiary (LOW confidence — training data only, not independently verified)
+- CUDA 11.4 / Kepler slow VRAM deallocation timing after process exit — governs the nvidia-smi polling requirement between model swaps
+- AC3/DTS to stereo downmix FFmpeg filter syntax for multi-channel VO source extraction
+- llama.cpp context window sizes for text-only 7B models in Q4_K_M quantization
 
 ---
-*Research completed: 2026-02-26*
+*Research completed: 2026-02-28*
 *Ready for roadmap: yes*
