@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Callable, Optional
 
+from cinecut.assembly.ordering import enforce_zone_pacing_curve, sort_clips_by_zone
 from cinecut.manifest.schema import ClipEntry, TrailerManifest, StructuralAnchors
 from cinecut.manifest.vibes import VIBE_PROFILES, VibeProfile
 from cinecut.models import DialogueEvent, KeyframeRecord
@@ -16,6 +17,7 @@ from cinecut.narrative.scorer import (
     compute_money_shot_score,
     normalize_all_signals,
 )
+from cinecut.narrative.zone_matching import run_zone_matching
 
 
 def compute_clip_window(
@@ -249,9 +251,27 @@ def run_narrative_stage(
     # Resolve overlaps
     windows = resolve_overlaps(windows)
 
+    # --- Zone matching: assign BEGINNING/ESCALATION/CLIMAX to each clip (STRC-02) ---
+    # Batch-encode all clip texts in one call — model loaded at most once via lru_cache.
+    # clip_texts and clip_midpoints are in the same order as top_scored/windows.
+    clip_texts = [
+        get_dialogue_excerpt(item["record"].timestamp_s, dialogue_events)
+        for item in top_scored
+    ]
+    clip_midpoints = [
+        (win_start + win_end) / 2.0
+        for win_start, win_end in windows
+    ]
+    zones = run_zone_matching(
+        clip_texts=clip_texts,
+        clip_midpoints=clip_midpoints,
+        film_duration_s=film_duration_s,
+        structural_anchors=structural_anchors,  # Optional; None for v1.0 manifests
+    )
+
     # Build ClipEntry objects
     clip_entries: list[ClipEntry] = []
-    for item, (win_start, win_end) in zip(top_scored, windows):
+    for idx, (item, (win_start, win_end)) in enumerate(zip(top_scored, windows)):
         # Skip degenerate windows (end <= start from resolve_overlaps)
         if win_end <= win_start:
             continue
@@ -287,13 +307,18 @@ def run_narrative_stage(
             visual_analysis=visual_analysis,
             subtitle_analysis=subtitle_analysis,
             money_shot_score=round(score, 4),
+            narrative_zone=zones[idx],   # STRC-02: attach zone assignment
         ))
+
+    # Apply zone-first ordering and pacing enforcement (EORD-01, EORD-02, EORD-03)
+    ordered_clips = sort_clips_by_zone(clip_entries)
+    ordered_clips = enforce_zone_pacing_curve(ordered_clips, vibe_profile)
 
     # Assemble and write manifest
     manifest = TrailerManifest(
         source_file=str(source_file),
         vibe=vibe,
-        clips=clip_entries,
+        clips=ordered_clips,
         structural_anchors=structural_anchors,   # None is fine; field is Optional
     )
     output_path = work_dir / "TRAILER_MANIFEST.json"
