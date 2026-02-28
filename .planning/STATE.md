@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Structural & Sensory Overhaul
 status: unknown
-last_updated: "2026-02-28T14:22:26Z"
+last_updated: "2026-02-28T17:15:00Z"
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 11
-  completed_plans: 4
+  completed_plans: 5
 ---
 
 # Project State
@@ -18,16 +18,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-28)
 
 **Core value:** Given a feature film and its subtitle file, produce a narratively coherent, vibe-styled trailer that a human editor would be proud to show.
-**Current focus:** v2.0 Phase 8 — Zone Matching and Non-Linear Ordering (Plan 01 complete, Plan 02 next)
+**Current focus:** v2.0 Phase 9 — Music Selection (Jamendo API integration)
 
 ## Current Position
 
-Phase: 8 of 10 (Zone Matching and Non-Linear Ordering) — In Progress
-Plan: 1 of 2 in current phase — COMPLETE
-Status: In progress (Phase 8 Plan 01 done, Phase 8 Plan 02 next)
-Last activity: 2026-02-28 — Phase 8 Plan 01 executed — NarrativeZone enum, zone_matching module, 14 unit tests
+Phase: 8 of 10 (Zone Matching and Non-Linear Ordering) — COMPLETE
+Plan: 2 of 2 in current phase — COMPLETE
+Status: Phase 8 complete — advancing to Phase 9
+Last activity: 2026-02-28 — Phase 8 Plan 02 executed — zone-first ordering wired into generator; 176 tests pass
 
-Progress: [████░░░░░░] 36% (v2.0 milestone — 4/11 plans complete)
+Progress: [████░░░░░░] 45% (v2.0 milestone — 5/11 plans complete)
 
 ## Performance Metrics
 
@@ -52,7 +52,7 @@ Progress: [████░░░░░░] 36% (v2.0 milestone — 4/11 plans co
 |-------|-------|----------|
 | 06 Inference Persistence | 1 | 3 min |
 | 07 Structural Analysis | 2/3 | 7.5 min |
-| 08 Zone Matching | 1/2 | 18 min |
+| 08 Zone Matching | 2/2 | 15 min |
 
 ## Accumulated Context
 
@@ -78,6 +78,8 @@ Recent decisions affecting v2.0 work:
 - [Phase 07-02]: statistics.median aggregation across subtitle chunks — single valid chunk passes through, multiple chunks produce true median for robustness
 - [Phase 08-01]: util exposed as module-level None attribute in zone_matching.py — set by _load_model() — so tests can patch without sentence-transformers installed
 - [Phase 08-01]: NarrativeZone(str, Enum) ensures Pydantic v2 serializes as plain string; ClipEntry.narrative_zone defaults None for backward compat with v1.0 manifests
+- [Phase 08-02]: test_no_clip_overlap rewritten to per-clip validity check — zone-first ordering breaks chronological adjacency assumption; resolve_overlaps still guarantees non-overlapping pre-sort windows
+- [Phase 08-02]: TestManifestGeneration tests patch cinecut.narrative.generator.run_zone_matching with position-based mock — sentence-transformers not installed in dev environment; mock returns correct-length zones list
 
 ### Pending Todos
 
@@ -93,5 +95,5 @@ None.
 ## Session Continuity
 
 Last session: 2026-02-28
-Stopped at: Phase 8 Plan 01 complete — NarrativeZone enum, zone_matching module, 14 zone tests + 9 forward-compatible zone ordering stubs (153+14 = 167 total passing)
+Stopped at: Phase 8 Plan 02 complete — sort_clips_by_zone, enforce_zone_pacing_curve, ZONE_ORDER; generator wired with run_zone_matching + zone-first ordering; 176 tests pass
 Resume file: None
