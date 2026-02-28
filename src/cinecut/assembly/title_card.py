@@ -6,12 +6,8 @@ from pathlib import Path
 from cinecut.errors import ConformError
 
 
-def get_video_dimensions(source: Path) -> tuple[int, int]:
-    """Return (width, height) of first video stream via ffprobe JSON output.
-
-    Falls back to (1920, 1080) if ffprobe fails (Pitfall 6: ffprobe may not be in PATH
-    on some installs; both ffmpeg and ffprobe are confirmed present on this machine).
-    """
+def _probe_video_stream(source: Path) -> dict:
+    """Return first video stream dict from ffprobe, or {} on failure."""
     cmd = [
         "ffprobe", "-v", "quiet",
         "-print_format", "json",
@@ -21,15 +17,39 @@ def get_video_dimensions(source: Path) -> tuple[int, int]:
     ]
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if result.returncode != 0:
-        return (1920, 1080)
+        return {}
     try:
         data = json.loads(result.stdout)
         streams = data.get("streams", [])
-        if streams:
-            return (int(streams[0]["width"]), int(streams[0]["height"]))
+        return streams[0] if streams else {}
     except (json.JSONDecodeError, KeyError, ValueError):
-        pass
-    return (1920, 1080)
+        return {}
+
+
+def get_video_dimensions(source: Path) -> tuple[int, int]:
+    """Return (width, height) of first video stream. Falls back to (1920, 1080)."""
+    stream = _probe_video_stream(source)
+    try:
+        return (int(stream["width"]), int(stream["height"]))
+    except (KeyError, ValueError):
+        return (1920, 1080)
+
+
+def get_video_frame_rate(source: Path) -> str:
+    """Return frame rate of first video stream as a string (e.g. '23.976', '25', '30').
+
+    Reads r_frame_rate (rational, e.g. '24000/1001') and converts to decimal string
+    rounded to 3 decimal places. Falls back to '24' if ffprobe fails.
+    """
+    stream = _probe_video_stream(source)
+    r_frame_rate = stream.get("r_frame_rate", "24/1")
+    try:
+        num, den = r_frame_rate.split("/")
+        fps = int(num) / int(den)
+        # Return as clean string: integer if whole number, else 3dp decimal
+        return str(int(fps)) if fps == int(fps) else f"{fps:.3f}"
+    except (ValueError, ZeroDivisionError):
+        return "24"
 
 
 def generate_title_card(
@@ -39,6 +59,7 @@ def generate_title_card(
     duration_s: float,
     output_path: Path,
     font_size: int = 64,
+    frame_rate: str = "24",
 ) -> Path:
     """Generate a pre-encoded black MP4 segment via FFmpeg lavfi color source.
 
@@ -62,12 +83,12 @@ def generate_title_card(
     """
     if title_text:
         vf = (
-            f"color=c=black:s={width}x{height}:r=24,"
+            f"color=c=black:s={width}x{height}:r={frame_rate},"
             f"drawtext=text='{title_text}':fontsize={font_size}"
             f":fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2"
         )
     else:
-        vf = f"color=c=black:s={width}x{height}:r=24"
+        vf = f"color=c=black:s={width}x{height}:r={frame_rate}"
 
     cmd = [
         "ffmpeg", "-y",

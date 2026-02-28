@@ -5,7 +5,7 @@ from pathlib import Path
 
 from cinecut.assembly.ordering import sort_clips_by_act, enforce_pacing_curve
 from cinecut.assembly.ordering import generate_silence_segment, insert_silence_at_zone_boundary
-from cinecut.assembly.title_card import generate_title_card, get_video_dimensions
+from cinecut.assembly.title_card import generate_title_card, get_video_dimensions, get_video_frame_rate
 from cinecut.assembly.bpm import generate_beat_grid, snap_to_nearest_beat, BpmGrid as BpmGridDC
 from cinecut.assembly.music import fetch_music_for_vibe, MusicBed as MusicBedDC
 from cinecut.manifest.schema import TrailerManifest
@@ -84,7 +84,7 @@ def assemble_manifest(
 
     # Step 6: Generate video dimensions; detect zone boundary and generate silence (EORD-04)
     width, height = get_video_dimensions(source_file)
-    frame_rate = "24"
+    frame_rate = get_video_frame_rate(source_file)
     silence_path, boundary_index = insert_silence_at_zone_boundary(
         paced_clips, work_dir, width, height, frame_rate
     )
@@ -100,6 +100,7 @@ def assemble_manifest(
         height=height,
         duration_s=5.0,
         output_path=work_dir / "title_card.mp4",
+        frame_rate=frame_rate,
     )
     button_path = generate_title_card(
         title_text="",
@@ -107,6 +108,7 @@ def assemble_manifest(
         height=height,
         duration_s=2.0,
         output_path=work_dir / "button.mp4",
+        frame_rate=frame_rate,
     )
 
     # Step 8: Build manifest metadata models for BpmGrid and MusicBed
