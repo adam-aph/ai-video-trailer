@@ -94,12 +94,31 @@ class ClipEntry(BaseModel):
         return self
 
 
+class BpmGrid(BaseModel):
+    """BPM grid metadata stored in manifest (BPMG-01, BPMG-03)."""
+    bpm: float = Field(gt=0.0, description="Resolved BPM after octave correction or vibe_default fallback")
+    beat_count: int = Field(ge=0, description="Number of beat timestamps in the grid")
+    source: str = Field(description="'librosa' if detected from audio; 'vibe_default' if fallback used")
+
+
+class MusicBed(BaseModel):
+    """Music track metadata stored in manifest (MUSC-01, MUSC-02)."""
+    track_id: str
+    track_name: str
+    artist_name: str
+    license_ccurl: str
+    local_path: str     # Absolute path to ~/.cinecut/music/{vibe}.mp3
+    bpm: Optional[float] = None   # Filled after BPM detection runs on the music file
+
+
 class TrailerManifest(BaseModel):
     schema_version: str = "2.0"   # bumped; keep as str (not Literal) for backward compat
     source_file: str
     vibe: str
     clips: list[ClipEntry] = Field(min_length=1)
     structural_anchors: Optional[StructuralAnchors] = None  # Phase 7 — absent in v1.0 manifests
+    bpm_grid: Optional[BpmGrid] = None      # None if BPM detection was skipped or unavailable
+    music_bed: Optional[MusicBed] = None    # None if music unavailable (MUSC-03 graceful degradation)
 
     @field_validator("vibe", mode="before")
     @classmethod
